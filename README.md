@@ -16,6 +16,8 @@ Läuft auf **Laptop und Handy**, lässt sich wie eine normale App installieren, 
 - **Tagesziele** (Standard: 60 Min Deep Work, 20 Seiten) als Fortschrittsringe.
 - **Statistik**: Säulendiagramme der letzten 14 Tage, Aktivitäts-Heatmap, Wochenvergleich, Zeit je Projekt, kompletter Verlauf.
 - **Sync zwischen Laptop und Handy** über ein geheimes GitHub-Gist (optional).
+- **Smarte Erinnerungen** (Fokus-Start, Lesezeit, Streak-Retter) – sie kommen nur, wenn das Ziel an dem Tag noch offen ist.
+- **iPhone-Widget** für Home- und Sperrbildschirm mit Level, Streak und Tageszielen.
 - **Backup** als JSON exportieren / importieren. Hell- und Dunkelmodus.
 
 ## Das Spiel dahinter 🎮
@@ -61,6 +63,20 @@ Ohne Sync liegen die Daten nur auf dem jeweiligen Gerät. Für den Abgleich:
 
 Die Daten landen in einem *geheimen* Gist in deinem GitHub-Account (nicht öffentlich gelistet). Der Token bleibt auf dem Gerät und wird nur an `api.github.com` geschickt. Änderungen von beiden Geräten werden zusammengeführt – auch wenn du auf einem Gerät offline warst.
 
+### 4. Erinnerungen & iPhone-Widget
+
+In der App oben auf die 🔔 tippen (bzw. „Erinnerungen“ in der Seitenleiste):
+
+1. **Zeiten und Wochentage** für die drei Erinnerungen festlegen. Das gilt für alle Geräte.
+2. **iPhone:** Web-Apps dürfen auf dem iPhone weder Widgets anlegen noch Mitteilungen planen. Das übernimmt die kostenlose App [Scriptable](https://apps.apple.com/app/scriptable/id1405459188):
+   - Sync verbinden (Schritt 3), dann auf „Skript kopieren“ tippen.
+   - In Scriptable auf ＋ tippen, einfügen, als Namen **Fortschritt** eintragen und einmal ▶ ausführen. Mitteilungen erlauben.
+   - Widget hinzufügen: Home-Bildschirm gedrückt halten → Bearbeiten → Widget hinzufügen → Scriptable → Widget antippen → Script „Fortschritt“. Auch für den Sperrbildschirm.
+   - Das Widget aktualisiert sich etwa alle 15 Minuten. Dabei plant es die Erinnerungen der nächsten 7 Tage und streicht die, deren Ziel du heute schon geschafft hast.
+3. **Laptop:** „Erinnerungen zeigen, solange Fortschritt geöffnet ist“ einschalten und die App in einem Tab offen lassen.
+
+Das Widget liest eine kleine Zusammenfassung (`fortschritt-widget.json`: Level, Streak, heutiger Stand, aktuelles Buch, Erinnerungszeiten), die die App bei jedem Sync in dein Gist schreibt.
+
 ## Datenschutz
 
 Alles wird lokal im Browser gespeichert (`localStorage`). Es gibt kein Tracking und keinen eigenen Server. Der Sync ist optional und läuft ausschließlich über dein eigenes GitHub-Gist.
@@ -83,9 +99,10 @@ js/sync.js            Sync über GitHub-Gist
 js/views.js           Die Seiten (Heute, Fokus, Bibliothek, Statistik, Erfolge, Einstellungen)
 js/charts.js          Ringe, Säulen, Heatmap
 js/ui.js              Toasts, Dialoge, Tooltips, Konfetti
-js/app.js             Steuerung: Routing, Timer, Belohnungen, Sync
+js/app.js             Steuerung: Routing, Timer, Belohnungen, Erinnerungen, Sync
+widget/               Scriptable-Skript fürs iPhone (Widget + Erinnerungen)
 sw.js                 Service Worker (Offline-Modus)
-tests/                Unit-Tests
+tests/                Unit-Tests (inkl. Test des Widget-Skripts gegen eine Scriptable-Nachbildung)
 ```
 
 Tipp zum Anpassen: Die Spielregeln (XP-Werte, Level-Kurve, Quests, Abzeichen) stehen gesammelt oben in `js/logic.js`.

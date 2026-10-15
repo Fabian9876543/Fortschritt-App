@@ -1,7 +1,7 @@
 // Die einzelnen Seiten der App als HTML-Strings. Nutzereingaben laufen immer
 // durch esc(). Interaktion läuft über data-action-Attribute (siehe app.js).
 
-import { LEVEL_TITLES, XP_RULES, FREEZE_EVERY, FREEZE_MAX, addDays, daysBetween, sessionXP, startOfWeek } from './logic.js';
+import { LEVEL_TITLES, REMINDER_TYPES, XP_RULES, FREEZE_EVERY, FREEZE_MAX, addDays, daysBetween, sessionXP, startOfWeek } from './logic.js';
 import { barList, columnChart, heatmap, ring } from './charts.js';
 import { esc, fmtAgo, fmtDate, fmtDay, fmtHours, fmtLongDay, fmtMin, fmtNum } from './ui.js';
 
@@ -679,13 +679,25 @@ export function syncCard(ctx) {
     </article>`;
 }
 
+function notificationStatus(action = 'notify-permission') {
+  const notif = 'Notification' in window ? Notification.permission : 'unsupported';
+  if (notif === 'granted') return '<p class="muted">✓ Mitteilungen erlaubt</p>';
+  if (notif === 'denied') return '<p class="muted">Mitteilungen sind blockiert – in den Browser-Einstellungen änderbar.</p>';
+  if (notif === 'unsupported') return '<p class="muted">Von diesem Browser nicht unterstützt (auf dem iPhone: App zum Home-Bildschirm hinzufügen).</p>';
+  return `<button class="btn btn-ghost" data-action="${action}">Mitteilungen erlauben</button>`;
+}
+
 export function viewSettings(ctx) {
   const { state, prefs } = ctx;
   const g = state.profile.goals;
-  const notif = 'Notification' in window ? Notification.permission : 'unsupported';
   return `
     <section class="page">
       <header class="page-head"><h1>Einstellungen</h1></header>
+      <a class="card link-card" href="#/erinnerungen">
+        <span class="link-card-icon" aria-hidden="true">⏰</span>
+        <span><strong>Erinnerungen & iPhone-Widget</strong><span class="muted">Smarte Erinnerungen, Widget für Home- und Sperrbildschirm</span></span>
+        <span aria-hidden="true">›</span>
+      </a>
       <div class="grid grid-2">
         <article class="card">
           <header class="card-head"><h2>Profil & Tagesziele</h2></header>
@@ -712,16 +724,8 @@ export function viewSettings(ctx) {
           </div>
           <label class="check"><input type="checkbox" data-change="wake-lock" ${prefs.wakeLock ? 'checked' : ''} /> Bildschirm während einer Session anlassen</label>
           <div class="field">
-            <span>Benachrichtigung bei Timer-Ende</span>
-            ${
-              notif === 'granted'
-                ? '<p class="muted">✓ Erlaubt</p>'
-                : notif === 'denied'
-                  ? '<p class="muted">Blockiert – in den Browser-Einstellungen änderbar.</p>'
-                  : notif === 'unsupported'
-                    ? '<p class="muted">Von diesem Browser nicht unterstützt (auf dem iPhone: App zum Home-Bildschirm hinzufügen).</p>'
-                    : '<button class="btn btn-ghost" data-action="notify-permission">Benachrichtigungen erlauben</button>'
-            }
+            <span>Mitteilung bei Timer-Ende</span>
+            ${notificationStatus()}
           </div>
         </article>
       </div>
@@ -814,6 +818,78 @@ export function projectForm(p = {}) {
     </div>`;
 }
 
+// ---------------------------------------------------------------- Erinnerungen & Widget
+
+const WEEKDAYS = ['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'];
+
+function reminderRow(r, goals) {
+  const meta = REMINDER_TYPES[r.type];
+  const off = (r.type === 'focus' && !goals.workMin) || (r.type === 'read' && !goals.readPages);
+  return `
+    <li class="reminder ${r.enabled ? '' : 'is-off'}">
+      <label class="switch">
+        <input type="checkbox" data-rem="${r.type}" data-field="enabled" ${r.enabled ? 'checked' : ''} aria-label="${esc(meta.title)} aktiv" />
+        <span aria-hidden="true"></span>
+      </label>
+      <div class="reminder-main">
+        <strong>${meta.icon} ${esc(meta.title)}</strong>
+        <span class="reminder-desc">${off ? 'Dieses Tagesziel steht auf 0 – die Erinnerung kommt deshalb nie.' : `Kommt nur, ${esc(meta.desc)}.`}</span>
+      </div>
+      <input type="time" class="reminder-time" id="rem-time-${r.type}" data-rem="${r.type}" data-field="time" value="${esc(r.time)}" aria-label="Uhrzeit ${esc(meta.title)}" />
+      <div class="days" role="group" aria-label="Wochentage ${esc(meta.title)}">
+        ${WEEKDAYS.map((d, i) => `<button class="day" aria-pressed="${r.days.includes(i + 1)}" data-action="rem-day" data-rem="${r.type}" data-day="${i + 1}">${d}</button>`).join('')}
+      </div>
+    </li>`;
+}
+
+export function widgetCard(ctx) {
+  const sync = ctx.prefs.sync;
+  let body;
+  if (!sync?.token) {
+    body = `<div class="nudge nudge-warn"><span>☁️</span><p><strong>Zuerst den Sync verbinden.</strong> Widget und iPhone-Erinnerungen lesen deinen Stand aus deinem Gist. <a href="#/einstellungen">Zum Sync →</a></p></div>`;
+  } else if (!sync.owner || !sync.gistId) {
+    body = `<p class="muted">Gleich fertig – nach dem nächsten Sync ist dein persönlicher Widget-Link bereit.</p>
+      <button class="btn btn-primary" data-action="sync-now">Jetzt synchronisieren</button>`;
+  } else {
+    body = `
+      <ol class="setup-steps">
+        <li><span><a href="https://apps.apple.com/app/scriptable/id1405459188" target="_blank" rel="noopener"><strong>Scriptable</strong></a> aus dem App Store laden (kostenlos).</span></li>
+        <li><span>Dein persönliches Skript kopieren:</span><button class="btn btn-primary" data-action="copy-widget">📋 Skript kopieren</button></li>
+        <li><span>In Scriptable oben rechts auf <strong>＋</strong> tippen, einfügen, oben als Namen <strong>Fortschritt</strong> eintragen und einmal <strong>▶</strong> ausführen. Mitteilungen erlauben.</span></li>
+        <li><span>Home-Bildschirm gedrückt halten → <strong>Bearbeiten</strong> → <strong>Widget hinzufügen</strong> → <strong>Scriptable</strong> → Größe wählen. Danach das Widget antippen und bei „Script“ <strong>Fortschritt</strong> auswählen.</span></li>
+        <li><span>Optional: Sperrbildschirm gedrückt halten → <strong>Anpassen</strong> → Widgets → Scriptable (rund: Streak & Tagesring, rechteckig: Streak & Ziele).</span></li>
+      </ol>
+      <p class="hint">Das Widget aktualisiert sich etwa alle 15 Minuten (wann genau, entscheidet iOS). Dabei werden auch die Erinnerungen an deinen Tagesstand angepasst – geschaffte Ziele lösen keine Erinnerung aus. Ein Tipp auf eine Mitteilung öffnet Scriptable; Fortschritt selbst startest du wie gewohnt über das App-Symbol.</p>`;
+  }
+  return `
+    <article class="card" id="widget-card">
+      <header class="card-head"><h2>📱 iPhone: Widget & Erinnerungen</h2></header>
+      <p>Das iPhone erlaubt Web-Apps keine eigenen Widgets und keine geplanten Mitteilungen. Das übernimmt die kostenlose App <strong>Scriptable</strong>: Sie zeigt dein Widget und stellt die Erinnerungen oben als echte iPhone-Mitteilungen – auch wenn Fortschritt geschlossen ist.</p>
+      ${body}
+    </article>`;
+}
+
+export function viewReminders(ctx) {
+  const { state, prefs } = ctx;
+  return `
+    <section class="page">
+      <header class="page-head"><h1>Erinnerungen & Widget</h1><p class="sub">Erinnerungen kommen nur, wenn das Ziel an dem Tag noch offen ist – schaffst du es vorher, bleibt es ruhig.</p></header>
+      <article class="card">
+        <header class="card-head"><h2>⏰ Wann soll ich dich erinnern?</h2></header>
+        <ul class="reminder-list">${state.profile.reminders.map((r) => reminderRow(r, state.profile.goals)).join('')}</ul>
+        <p class="hint">Gilt für alle deine Geräte – Änderungen kommen per Sync auch aufs iPhone.</p>
+      </article>
+      ${widgetCard(ctx)}
+      <article class="card">
+        <header class="card-head"><h2>💻 Auf diesem Gerät</h2></header>
+        <label class="check"><input type="checkbox" data-change="local-reminders" ${prefs.localReminders ? 'checked' : ''} /> Erinnerungen zeigen, solange Fortschritt geöffnet ist</label>
+        <p class="muted">Ideal für den Laptop: Lass die App in einem Tab oder als installierte App offen. Auf dem iPhone besser über Scriptable (oben), sonst kommt manches doppelt.</p>
+        ${notificationStatus()}
+        <div class="row-actions"><button class="btn btn-ghost" data-action="test-notification">🔔 Test-Mitteilung</button></div>
+      </article>
+    </section>`;
+}
+
 export const views = {
   heute: viewToday,
   fokus: viewFocus,
@@ -821,4 +897,5 @@ export const views = {
   statistik: viewStats,
   erfolge: viewAchievements,
   einstellungen: viewSettings,
+  erinnerungen: viewReminders,
 };

@@ -18,6 +18,20 @@ export const XP_RULES = {
 export const FREEZE_EVERY = 7;
 export const FREEZE_MAX = 2;
 
+// Erinnerungen kommen nur, wenn das jeweilige Ziel an dem Tag noch offen ist.
+// Wochentage nach ISO: 1 = Montag … 7 = Sonntag.
+export const REMINDER_TYPES = {
+  focus: { icon: '🎯', title: 'Fokus-Start', desc: 'wenn dein Deep-Work-Ziel noch offen ist' },
+  read: { icon: '📖', title: 'Lesezeit', desc: 'wenn dein Lese-Ziel noch offen ist' },
+  streak: { icon: '🔥', title: 'Streak-Retter', desc: 'wenn heute noch kein Tagesziel geschafft ist' },
+};
+
+export const DEFAULT_REMINDERS = [
+  { type: 'focus', time: '09:00', days: [1, 2, 3, 4, 5], enabled: true },
+  { type: 'read', time: '20:30', days: [1, 2, 3, 4, 5, 6, 7], enabled: true },
+  { type: 'streak', time: '21:30', days: [1, 2, 3, 4, 5, 6, 7], enabled: true },
+];
+
 export const LEVEL_TITLES = [
   { level: 1, title: 'Neuling', icon: '🌱' },
   { level: 3, title: 'Lehrling', icon: '📘' },
@@ -60,6 +74,11 @@ export function startOfWeek(key) {
   return addDays(key, -wd);
 }
 
+// 1 = Montag … 7 = Sonntag
+export function isoWeekday(key) {
+  return ((parseDay(key).getDay() + 6) % 7) + 1;
+}
+
 export function isValidDay(key) {
   return typeof key === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(key) && dayKey(parseDay(key)) === key;
 }
@@ -74,7 +93,7 @@ export function uid() {
 export function emptyState() {
   return {
     schema: 1,
-    profile: { name: '', goals: { ...DEFAULT_GOALS }, updatedAt: 0 },
+    profile: { name: '', goals: { ...DEFAULT_GOALS }, reminders: DEFAULT_REMINDERS.map((r) => ({ ...r, days: [...r.days] })), updatedAt: 0 },
     books: {},
     projects: {},
     sessions: {},
@@ -99,6 +118,7 @@ export function normalizeState(raw) {
       workMin: clampInt(g.workMin, 0, 1440, DEFAULT_GOALS.workMin),
       readPages: clampInt(g.readPages, 0, 5000, DEFAULT_GOALS.readPages),
     };
+    if (Array.isArray(p.reminders)) s.profile.reminders = normalizeReminders(p.reminders);
   }
   for (const key of ['books', 'projects', 'sessions']) {
     const src = raw[key];
@@ -108,6 +128,16 @@ export function normalizeState(raw) {
     }
   }
   return s;
+}
+
+// Genau eine Erinnerung pro Typ, in fester Reihenfolge; Ungültiges fällt auf Standardwerte zurück.
+export function normalizeReminders(list) {
+  return DEFAULT_REMINDERS.map((def) => {
+    const r = list.find((x) => x && x.type === def.type) || {};
+    const time = typeof r.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(r.time) ? r.time : def.time;
+    const days = Array.isArray(r.days) ? [...new Set(r.days.map(Number).filter((d) => Number.isInteger(d) && d >= 1 && d <= 7))].sort() : [...def.days];
+    return { type: def.type, time, days, enabled: typeof r.enabled === 'boolean' ? r.enabled : def.enabled };
+  });
 }
 
 // Stabile JSON-Darstellung (sortierte Schlüssel) zum Vergleichen von Ständen.
@@ -632,4 +662,94 @@ export function computeStats(state, today = dayKey()) {
     return { ...a, current: value, done: value >= a.target, pct: Math.min(1, value / a.target) };
   });
   return stats;
+}
+
+// ---------------------------------------------------------------- Erinnerungen & Widget
+
+// Kompakter Tagesstand, aus dem Erinnerungstexte entstehen. Dieselbe Form
+// liefert das iPhone-Widget-Skript aus der Zusammenfassung im Gist.
+export function reminderContext(stats) {
+  const t = stats.todayAgg;
+  return {
+    workMin: Math.round(t.workMin),
+    workGoal: stats.goals.workMin,
+    readPages: Math.round(t.readPages),
+    readGoal: stats.goals.readPages,
+    streak: stats.streak.current,
+    todayMet: stats.streak.todayMet,
+    freezes: stats.streak.freezes,
+  };
+}
+
+// Text einer Erinnerung – oder null, wenn sie heute nicht nötig ist.
+// streak === null steht für "unbekannt" (z. B. für Tage in der Zukunft).
+// Gleiche Logik steckt in widget/fortschritt-scriptable.js – bei Änderungen beide anpassen.
+export function reminderMessage(type, c) {
+  if (type === 'focus') {
+    if (!(c.workGoal > 0) || c.workMin >= c.workGoal) return null;
+    const left = c.workGoal - c.workMin;
+    return {
+      title: '🎯 Zeit für Deep Work',
+      body:
+        c.workMin > 0
+          ? `Noch ${left} Min bis zu deinem Fokus-Ziel. Schaffst du die nächste Session?`
+          : `Starte deine erste Fokus-Session – ${c.workGoal} Min sind heute dein Ziel.`,
+    };
+  }
+  if (type === 'read') {
+    if (!(c.readGoal > 0) || c.readPages >= c.readGoal) return null;
+    const left = c.readGoal - c.readPages;
+    return {
+      title: '📖 Lesezeit',
+      body:
+        c.readPages > 0
+          ? `Noch ${left} ${left === 1 ? 'Seite' : 'Seiten'} bis zu deinem Lese-Ziel.`
+          : `${c.readGoal} Seiten warten auf dich – ein Kapitel vorm Schlafen zählt.`,
+    };
+  }
+  if (type === 'streak') {
+    if (c.todayMet) return null;
+    if (c.streak === null) return { title: '🔥 Halte deinen Streak am Leben', body: 'Erreiche heute noch ein Tagesziel.' };
+    if (c.streak > 0) {
+      return {
+        title: `🔥 Dein ${c.streak}-Tage-Streak ist in Gefahr`,
+        body:
+          c.freezes > 0
+            ? 'Erreiche heute noch ein Tagesziel – sonst kostet es dich einen Joker.'
+            : 'Erreiche heute noch ein Tagesziel, sonst ist er um Mitternacht weg.',
+      };
+    }
+    return { title: '🔥 Starte heute einen Streak', body: 'Ein erreichtes Tagesziel reicht für Tag 1.' };
+  }
+  return null;
+}
+
+// Zusammenfassung für das Widget (wird beim Sync als eigene Datei ins Gist geschrieben).
+export function widgetSummary(state, stats, appUrl = '') {
+  const t = stats.todayAgg;
+  const L = stats.level;
+  const book = Object.values(state.books)
+    .filter((b) => !b.deleted && stats.books[b.id] && !stats.books[b.id].finished && stats.books[b.id].lastDay)
+    .sort((a, b) => (stats.books[b.id].lastDay < stats.books[a.id].lastDay ? -1 : 1))[0];
+  const bs = book && stats.books[book.id];
+  return {
+    v: 1,
+    generatedAt: Date.now(),
+    day: stats.today,
+    name: state.profile.name,
+    appUrl,
+    level: { level: L.level, title: L.title, icon: L.icon, pct: Math.round(L.pct * 1000) / 1000, into: L.into, span: L.span, totalXP: stats.totalXP },
+    streak: { current: stats.streak.current, best: stats.streak.best, todayMet: stats.streak.todayMet, freezes: stats.streak.freezes },
+    today: {
+      workMin: Math.round(t.workMin),
+      workGoal: stats.goals.workMin,
+      readPages: Math.round(t.readPages),
+      readGoal: stats.goals.readPages,
+      xp: t.xp,
+      questsDone: t.quests.filter((q) => q.done).length,
+      questsTotal: t.quests.length,
+    },
+    book: book ? { title: book.title, page: bs.shown, total: Number(book.totalPages) || 0, pct: Math.round(bs.pct * 1000) / 1000 } : null,
+    reminders: state.profile.reminders.filter((r) => r.enabled),
+  };
 }

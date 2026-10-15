@@ -1,12 +1,26 @@
 // Einstiegspunkt: Routing, Rendering, Aktionen, Timer, Belohnungen und Sync.
 
 import * as store from './store.js';
-import { XP_RULES, canonical, computeStats, dayKey, isValidDay, mergeStates, normalizeState, sessionXP } from './logic.js';
-import { syncWithGist } from './sync.js';
-import { bookForm, projectForm, sessionForm, syncCard, views } from './views.js';
+import {
+  XP_RULES,
+  canonical,
+  computeStats,
+  dayKey,
+  isValidDay,
+  isoWeekday,
+  mergeStates,
+  normalizeState,
+  reminderContext,
+  reminderMessage,
+  sessionXP,
+  widgetSummary,
+} from './logic.js';
+import { WIDGET_FILE, syncWithGist, widgetDataUrl } from './sync.js';
+import { bookForm, projectForm, sessionForm, syncCard, views, widgetCard } from './views.js';
 import { $, $$, chime, closeModal, confetti, confirmDialog, esc, fmtClock, fmtNum, initTooltips, openModal, toast, unlockAudio } from './ui.js';
 
-const VERSION = '1.0.0';
+const VERSION = '1.1.0';
+const APP_URL = new URL('./', location.href).href;
 const ROUTES = Object.keys(views);
 const ui = { libraryTab: 'books', historyLimit: 30, syncStatus: 'idle', syncError: '' };
 let stats = null;
@@ -44,6 +58,7 @@ function render() {
   if (active && document.getElementById(active) && !$('#modal').open) document.getElementById(active).focus();
   renderChrome(ctx);
   updateTimerUI();
+  if (ctx.route === 'erinnerungen') loadWidgetScript().catch(() => {});
 }
 
 function renderChrome(ctx = context()) {
@@ -246,15 +261,20 @@ function updateTimerUI() {
   }
 }
 
-async function notify(title, body) {
-  if (!('Notification' in window) || Notification.permission !== 'granted' || !document.hidden) return;
+async function systemNotification(title, body, tag) {
+  if (!('Notification' in window) || Notification.permission !== 'granted') return false;
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
-    if (reg) reg.showNotification(title, { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag: 'timer' });
-    else new Notification(title, { body, icon: 'icons/icon-192.png' });
+    if (reg) await reg.showNotification(title, { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag });
+    else new Notification(title, { body, icon: 'icons/icon-192.png', tag });
+    return true;
   } catch {
-    /* optional */
+    return false;
   }
+}
+
+function notify(title, body) {
+  if (document.hidden) systemNotification(title, body, 'timer');
 }
 
 let wakeLock = null;
@@ -512,6 +532,80 @@ async function resetData() {
   toast({ icon: '🧹', title: 'Alle Daten gelöscht' });
 }
 
+// ---------------------------------------------------------------- Erinnerungen (solange die App offen ist)
+
+let lastReminderCheck = 0;
+const REMINDER_LATE_MS = 90 * 60000; // verpasste Erinnerungen nicht später als 90 Min nachholen
+
+function checkLocalReminders() {
+  const prefs = store.getPrefs();
+  const now = new Date();
+  if (!prefs.localReminders || now - lastReminderCheck < 20000) return;
+  lastReminderCheck = +now;
+  const today = dayKey(now);
+  const log = Object.fromEntries(Object.entries(prefs.reminderLog || {}).filter(([key]) => key.slice(-10) >= dayKey(new Date(now - 7 * 86400000))));
+  let changed = Object.keys(log).length !== Object.keys(prefs.reminderLog || {}).length;
+  for (const r of store.getState().profile.reminders) {
+    const key = `${r.type}:${today}`;
+    if (!r.enabled || !r.days.includes(isoWeekday(today)) || log[key]) continue;
+    const [h, m] = r.time.split(':').map(Number);
+    const at = new Date(now);
+    at.setHours(h, m, 0, 0);
+    if (now < at) continue;
+    log[key] = 1;
+    changed = true;
+    if (now - at > REMINDER_LATE_MS) continue;
+    const msg = reminderMessage(r.type, reminderContext(stats));
+    if (msg) showReminder(msg, r.type);
+  }
+  if (changed) store.setPrefs({ reminderLog: log });
+}
+
+async function showReminder({ title, body }, tag) {
+  const looking = document.visibilityState === 'visible' && document.hasFocus();
+  if (looking || !(await systemNotification(title, body, `reminder-${tag}`))) {
+    toast({ icon: '⏰', title, text: body, kind: 'xp', timeout: 10000 });
+  }
+}
+
+// ---------------------------------------------------------------- iPhone-Widget
+
+let widgetScript = null;
+
+async function loadWidgetScript() {
+  const sync = store.getPrefs().sync;
+  if (!sync?.owner || !sync.gistId) return null;
+  if (!widgetScript) {
+    const res = await fetch('widget/fortschritt-scriptable.js');
+    if (!res.ok) throw new Error('Skript nicht gefunden');
+    widgetScript = await res.text();
+  }
+  return widgetScript.replace("'__DATA_URL__'", JSON.stringify(widgetDataUrl(sync.owner, sync.gistId)));
+}
+
+// Kopieren muss direkt in der Tipp-Geste starten (sonst blockiert Safari);
+// ClipboardItem darf den Text aber nachliefern.
+function copyWidgetScript() {
+  if (!store.getPrefs().sync?.owner) return toast({ icon: '☁️', title: 'Bitte zuerst synchronisieren', kind: 'error' });
+  const textPromise = loadWidgetScript();
+  const copy =
+    window.ClipboardItem && navigator.clipboard?.write
+      ? navigator.clipboard.write([new ClipboardItem({ 'text/plain': textPromise.then((t) => new Blob([t], { type: 'text/plain' })) })])
+      : textPromise.then((t) => navigator.clipboard.writeText(t));
+  copy
+    .then(() => toast({ icon: '📋', title: 'Skript kopiert', text: 'Jetzt in Scriptable einfügen.' }))
+    .catch(async () => {
+      // Zwischenablage blockiert → zum manuellen Kopieren anzeigen
+      const text = await textPromise.catch(() => '');
+      openModal({
+        title: 'Skript kopieren',
+        body: `<p>Markiere den ganzen Text, kopiere ihn und füge ihn in Scriptable ein.</p><textarea class="script-box" readonly rows="10">${esc(text)}</textarea>`,
+        submitLabel: 'Fertig',
+        cancel: false,
+      });
+    });
+}
+
 // ---------------------------------------------------------------- Sync
 
 let syncTimeout = 0;
@@ -542,10 +636,12 @@ async function runSync({ manual = false } = {}) {
   renderChrome();
   let ok = false;
   try {
-    const { state, gistId } = await syncWithGist(cfg, store.getState);
+    const { state, gistId, owner } = await syncWithGist(cfg, store.getState, {
+      extraFiles: (merged) => ({ [WIDGET_FILE]: JSON.stringify(widgetSummary(merged, computeStats(merged, dayKey()), APP_URL)) }),
+    });
     // Was während des Uploads lokal dazukam, bleibt erhalten
     const merged = mergeStates(store.getState(), state);
-    store.setPrefs({ sync: { ...store.getPrefs().sync, gistId, lastSync: Date.now() } });
+    store.setPrefs({ sync: { ...store.getPrefs().sync, gistId, owner: owner || store.getPrefs().sync.owner || null, lastSync: Date.now() } });
     ui.syncStatus = 'ok';
     ui.syncError = '';
     if (canonical(merged) !== canonical(normalizeState(store.getState()))) store.replaceState(merged, 'sync');
@@ -560,6 +656,8 @@ async function runSync({ manual = false } = {}) {
     // Nur die Sync-Karte aktualisieren, damit Eingaben in anderen Feldern bleiben
     const card = $('#sync-card');
     if (card) card.outerHTML = syncCard(context());
+    const wcard = $('#widget-card');
+    if (wcard) wcard.outerHTML = widgetCard(context());
     renderChrome();
     if (syncAgain) {
       syncAgain = false;
@@ -643,6 +741,19 @@ const actions = {
     render();
   },
   'sync-now': () => runSync({ manual: true }),
+  'rem-day': (el) => {
+    const day = Number(el.dataset.day);
+    updateReminder(el.dataset.rem, (r) => ({ ...r, days: r.days.includes(day) ? r.days.filter((d) => d !== day) : [...r.days, day].sort() }));
+  },
+  'copy-widget': copyWidgetScript,
+  'test-notification': async () => {
+    if ('Notification' in window && Notification.permission === 'default') await Notification.requestPermission();
+    const msg = reminderMessage('streak', { ...reminderContext(stats), todayMet: false }) || { title: '🔔 Test', body: 'So sehen deine Erinnerungen aus.' };
+    if (!(await systemNotification(msg.title, msg.body, 'test'))) {
+      toast({ icon: '🔔', title: 'Mitteilungen nicht erlaubt', text: 'Erlaube sie in den Einstellungen deines Browsers bzw. iPhones.', kind: 'error' });
+    }
+    render();
+  },
   'sync-disconnect': async () => {
     const ok = await confirmDialog('Die Daten bleiben auf diesem Gerät und im Gist erhalten, es wird nur nicht mehr synchronisiert.', {
       title: 'Sync trennen?',
@@ -683,6 +794,26 @@ document.addEventListener('change', (e) => {
   if (el.dataset.change === 'focus-ref') {
     const f = store.getPrefs().focus;
     store.setPrefs({ focus: { ...f, [f.kind === 'read' ? 'readRef' : 'workRef']: el.value } });
+  } else if (el.dataset.rem) {
+    const field = el.dataset.field;
+    updateReminder(el.dataset.rem, (r) => ({ ...r, [field]: field === 'enabled' ? el.checked : el.value || r.time }));
+  } else if (el.dataset.change === 'local-reminders') {
+    const enable = el.checked;
+    store.setPrefs({ localReminders: enable, reminderLog: {} });
+    lastReminderCheck = 0;
+    // Erinnerungen, deren Zeit heute schon vorbei ist, nicht sofort nachholen
+    if (enable) {
+      const today = dayKey();
+      store.setPrefs({
+        reminderLog: Object.fromEntries(
+          store
+            .getState()
+            .profile.reminders.filter((r) => r.time <= new Date().toTimeString().slice(0, 5))
+            .map((r) => [`${r.type}:${today}`, 1]),
+        ),
+      });
+      if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().then(render);
+    }
   } else if (el.dataset.change === 'wake-lock') {
     store.setPrefs({ wakeLock: el.checked });
     updateWakeLock();
@@ -694,6 +825,11 @@ document.addEventListener('change', (e) => {
     toast({ icon: '✓', title: 'Gespeichert' });
   }
 });
+
+function updateReminder(type, change) {
+  const reminders = store.getState().profile.reminders.map((r) => (r.type === type ? change(r) : r));
+  store.setProfile({ reminders });
+}
 
 document.addEventListener('submit', (e) => {
   const form = e.target;
@@ -746,6 +882,7 @@ window.addEventListener('beforeinstallprompt', (e) => {
 setInterval(() => {
   if (dayKey() !== renderedDay) render();
   else if (timer) updateTimerUI();
+  checkLocalReminders();
 }, 1000);
 
 // ---------------------------------------------------------------- Start

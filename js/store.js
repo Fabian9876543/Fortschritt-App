@@ -113,6 +113,8 @@ const prefDefaults = {
   lastLevel: null,
   focus: { kind: 'work', workRef: '', readRef: '', minutes: 50 },
   wakeLock: true,
+  localReminders: false, // Erinnerungen anzeigen, solange die App offen ist
+  reminderLog: {}, // bereits gezeigte Erinnerungen { "read:2026-10-15": 1 }
 };
 
 let prefs = { ...prefDefaults, ...readJSON(PREFS_KEY, {}) };

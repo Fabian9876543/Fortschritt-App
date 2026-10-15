@@ -237,6 +237,13 @@ svg {
   border-radius: 8px;
 }
 
+/* Schmale Handys: nur das App-Symbol, damit alle Kopfzeilen-Knöpfe passen */
+@media (max-width: 430px) {
+  .topbar .brand span {
+    display: none;
+  }
+}
+
 .topbar-chips {
   display: flex;
   align-items: center;
@@ -2149,6 +2156,256 @@ body.has-mini-timer main {
   margin: 0 0 12px;
   padding-left: 18px;
   color: var(--text-2);
+}
+
+/* ------------------------------------------------------------------ Erinnerungen & Widget */
+
+.icon-btn[aria-current='page'] {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.link-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  color: var(--text);
+  text-decoration: none;
+}
+
+.link-card:hover {
+  border-color: var(--border-strong);
+}
+
+.link-card-icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  flex: none;
+  border-radius: 14px;
+  font-size: 26px;
+  background: var(--xp-soft);
+}
+
+.link-card > span:nth-child(2) {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.link-card .muted {
+  font-size: 13px;
+}
+
+.link-card > span:last-child {
+  font-size: 26px;
+  color: var(--muted);
+}
+
+.reminder-list {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.reminder {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    'switch title time'
+    'switch desc desc'
+    'days days days';
+  align-items: center;
+  gap: 4px 12px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.reminder:first-child {
+  padding-top: 0;
+}
+
+.reminder:last-child {
+  border-bottom: 0;
+}
+
+.reminder.is-off .reminder-main > *,
+.reminder.is-off .reminder-time,
+.reminder.is-off .days {
+  opacity: 0.5;
+}
+
+.reminder .switch {
+  grid-area: switch;
+  align-self: start;
+}
+
+.reminder-main {
+  display: contents;
+}
+
+.reminder-main strong {
+  grid-area: title;
+}
+
+.reminder-desc {
+  grid-area: desc;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.reminder-time {
+  grid-area: time;
+  min-height: 40px;
+  padding: 6px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  font: inherit;
+  font-size: 16px;
+  font-weight: 650;
+  color: var(--text);
+}
+
+.days {
+  grid-area: days;
+  margin-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 6px;
+  max-width: 420px;
+}
+
+.day {
+  min-height: 36px;
+  padding: 0;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: transparent;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 650;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.day[aria-pressed='true'] {
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+}
+
+.switch {
+  position: relative;
+  width: 48px;
+  height: 28px;
+  flex: none;
+  margin-top: 4px;
+}
+
+.switch input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.switch span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: var(--surface-3);
+  transition: background 0.2s;
+}
+
+.switch span::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
+  transition: transform 0.2s;
+}
+
+.switch input:checked + span {
+  background: var(--good);
+}
+
+.switch input:checked + span::after {
+  transform: translateX(20px);
+}
+
+.switch input:focus-visible + span {
+  outline: 2px solid var(--work);
+  outline-offset: 2px;
+}
+
+.setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  margin: 16px 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: setup;
+}
+
+.setup-steps li {
+  display: grid;
+  grid-template-columns: 30px minmax(0, 1fr);
+  gap: 8px 12px;
+  align-items: start;
+  counter-increment: setup;
+}
+
+.setup-steps li::before {
+  content: counter(setup);
+  grid-row: span 2;
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: var(--surface-2);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.setup-steps li > * {
+  grid-column: 2;
+}
+
+.setup-steps li > span {
+  padding-top: 4px;
+}
+
+.setup-steps .btn {
+  justify-self: start;
+}
+
+.script-box {
+  width: 100%;
+  padding: 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font:
+    12px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    monospace;
 }
 
 /* ------------------------------------------------------------------ Dialoge */

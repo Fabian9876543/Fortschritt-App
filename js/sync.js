@@ -6,6 +6,7 @@ import { canonical, mergeStates, normalizeState } from './logic.js';
 
 const API = 'https://api.github.com';
 export const GIST_FILE = 'fortschritt-data.json';
+export const WIDGET_FILE = 'fortschritt-widget.json';
 
 export class SyncError extends Error {
   constructor(message, status) {
@@ -42,46 +43,80 @@ async function findGist(token) {
   return hit ? hit.id : null;
 }
 
+async function fileContent(file) {
+  if (!file.truncated || !file.raw_url) return file.content;
+  const raw = await fetch(file.raw_url, { cache: 'no-store' });
+  return raw.text();
+}
+
 async function readGist(id, token) {
   const gist = await request(`/gists/${id}`, token);
-  const file = gist.files?.[GIST_FILE];
-  if (!file) return null;
-  let content = file.content;
-  if (file.truncated && file.raw_url) {
-    const raw = await fetch(file.raw_url, { cache: 'no-store' });
-    content = await raw.text();
+  const files = {};
+  for (const [name, file] of Object.entries(gist.files || {})) files[name] = await fileContent(file);
+  let state = null;
+  if (files[GIST_FILE] !== undefined) {
+    try {
+      state = normalizeState(JSON.parse(files[GIST_FILE]));
+    } catch {
+      throw new SyncError('Die Daten im Gist sind beschädigt.', 0);
+    }
   }
+  return { state, files, owner: gist.owner?.login || null };
+}
+
+// Zusatzdateien (z. B. die Widget-Zusammenfassung) gelten als unverändert,
+// wenn sich nur ihr Zeitstempel geändert hat.
+function sameExtra(oldContent, newContent) {
+  if (oldContent === undefined) return false;
+  const strip = (text) => {
+    const obj = JSON.parse(text);
+    delete obj.generatedAt;
+    return canonical(obj);
+  };
   try {
-    return normalizeState(JSON.parse(content));
+    return strip(oldContent) === strip(newContent);
   } catch {
-    throw new SyncError('Die Daten im Gist sind beschädigt.', 0);
+    return oldContent === newContent;
   }
 }
 
 // getState wird erst nach dem Download aufgerufen, damit Änderungen, die
 // währenddessen lokal entstanden sind, nicht verloren gehen.
-export async function syncWithGist({ token, gistId }, getState) {
+// extraFiles(merged) liefert weitere Dateien { name: inhalt } für das Gist.
+export async function syncWithGist({ token, gistId }, getState, { extraFiles } = {}) {
   if (!token) throw new SyncError('Kein Token hinterlegt.', 0);
   let id = gistId || (await findGist(token));
   const remote = id ? await readGist(id, token) : null;
-  const merged = remote ? mergeStates(getState(), remote) : normalizeState(getState());
-  const content = JSON.stringify(merged);
+  const merged = remote?.state ? mergeStates(getState(), remote.state) : normalizeState(getState());
+  const files = {};
+  if (!remote?.state || canonical(remote.state) !== canonical(merged)) files[GIST_FILE] = JSON.stringify(merged);
+  for (const [name, content] of Object.entries(extraFiles ? extraFiles(merged) : {})) {
+    if (!sameExtra(remote?.files[name], content)) files[name] = content;
+  }
+  let owner = remote?.owner || null;
 
   if (!id) {
+    files[GIST_FILE] = JSON.stringify(merged);
     const created = await request('/gists', token, {
       method: 'POST',
       body: JSON.stringify({
         description: 'Fortschritt-App – Daten (automatisch verwaltet)',
         public: false,
-        files: { [GIST_FILE]: { content } },
+        files: Object.fromEntries(Object.entries(files).map(([name, content]) => [name, { content }])),
       }),
     });
     id = created.id;
-  } else if (!remote || canonical(remote) !== canonical(merged)) {
+    owner = created.owner?.login || null;
+  } else if (Object.keys(files).length) {
     await request(`/gists/${id}`, token, {
       method: 'PATCH',
-      body: JSON.stringify({ files: { [GIST_FILE]: { content } } }),
+      body: JSON.stringify({ files: Object.fromEntries(Object.entries(files).map(([name, content]) => [name, { content }])) }),
     });
   }
-  return { state: merged, gistId: id };
+  return { state: merged, gistId: id, owner };
+}
+
+// Öffentlich lesbarer Link (nur mit Kenntnis der Gist-ID) auf die Widget-Datei.
+export function widgetDataUrl(owner, gistId) {
+  return `https://gist.githubusercontent.com/${owner}/${gistId}/raw/${WIDGET_FILE}`;
 }
