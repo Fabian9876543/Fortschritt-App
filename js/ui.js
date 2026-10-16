@@ -284,36 +284,92 @@ export function confetti(count = 140) {
 // ---------------------------------------------------------------- Ton
 
 let audioCtx = null;
+
+function audio() {
+  audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
+  if (audioCtx.state !== 'running') audioCtx.resume().catch(() => {});
+  return audioCtx;
+}
+
+// Ohne vorherige Interaktion blockiert der Browser Ton und Vibration ohnehin
+const mayPlay = () => !navigator.userActivation || navigator.userActivation.hasBeenActive;
+
+function tone(ctx, freq, at, { length = 0.6, volume = 0.25, type = 'sine' } = {}) {
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type;
+  osc.frequency.value = freq;
+  gain.gain.setValueAtTime(0, at);
+  gain.gain.linearRampToValueAtTime(volume, at + 0.02);
+  gain.gain.exponentialRampToValueAtTime(0.001, at + length);
+  osc.connect(gain).connect(ctx.destination);
+  osc.start(at);
+  osc.stop(at + length + 0.05);
+  return osc;
+}
+
 export function chime() {
-  // Ohne vorherige Interaktion blockiert der Browser Ton und Vibration ohnehin
-  if (navigator.userActivation && !navigator.userActivation.hasBeenActive) return;
+  if (!mayPlay()) return;
   try {
-    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    const t0 = audioCtx.currentTime;
-    [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => {
-      const osc = audioCtx.createOscillator();
-      const gain = audioCtx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = t0 + i * 0.16;
-      gain.gain.setValueAtTime(0, t);
-      gain.gain.linearRampToValueAtTime(0.25, t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.001, t + 0.6);
-      osc.connect(gain).connect(audioCtx.destination);
-      osc.start(t);
-      osc.stop(t + 0.65);
-    });
+    const ctx = audio();
+    [523.25, 659.25, 783.99, 1046.5].forEach((freq, i) => tone(ctx, freq, ctx.currentTime + i * 0.16));
   } catch {
     /* Ton ist optional */
   }
   navigator.vibrate?.([200, 100, 200, 100, 400]);
 }
 
+// Wecker: klingelt alle 2 Sekunden, bis stopAlarm() kommt (spätestens nach `seconds`).
+// Alle Töne werden sofort im Audio-Thread eingeplant – so klingeln sie auch dann
+// pünktlich weiter, wenn der Browser die Seite im Hintergrund drosselt.
+let alarm = null;
+
+export function startAlarm({ seconds = 60, onEnd } = {}) {
+  stopAlarm();
+  const nodes = [];
+  if (mayPlay()) {
+    try {
+      // Wie der iPhone-Wecker auch im Lautlos-Modus hörbar
+      if (navigator.audioSession) navigator.audioSession.type = 'playback';
+      const ctx = audio();
+      const t0 = ctx.currentTime + 0.05;
+      for (let ring = 0; ring * 2 < seconds; ring++) {
+        [880, 1108.73, 1318.51, 880, 1108.73, 1318.51].forEach((freq, i) => {
+          nodes.push(tone(ctx, freq, t0 + ring * 2 + i * 0.13 + (i >= 3 ? 0.12 : 0), { length: 0.22, volume: 0.35, type: 'triangle' }));
+        });
+      }
+    } catch {
+      /* Ton ist optional */
+    }
+    navigator.vibrate?.([600, 300, 600, 300, 600, 300, 600, 300, 600]);
+  }
+  alarm = { nodes, onEnd, timeout: setTimeout(stopAlarm, seconds * 1000) };
+}
+
+export function stopAlarm() {
+  if (!alarm) return;
+  const { nodes, onEnd, timeout } = alarm;
+  alarm = null;
+  clearTimeout(timeout);
+  for (const node of nodes) {
+    try {
+      node.stop();
+      node.disconnect();
+    } catch {
+      /* schon beendet */
+    }
+  }
+  navigator.vibrate?.(0);
+  if (navigator.audioSession) navigator.audioSession.type = 'auto';
+  onEnd?.();
+}
+
+export const alarmRinging = () => alarm !== null;
+
 // Muss einmal durch eine Nutzeraktion "entsperrt" werden (v. a. iOS).
 export function unlockAudio() {
   try {
-    audioCtx ||= new (window.AudioContext || window.webkitAudioContext)();
-    if (audioCtx.state === 'suspended') audioCtx.resume();
+    audio();
   } catch {
     /* ignorieren */
   }

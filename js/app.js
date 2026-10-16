@@ -5,7 +5,9 @@ import {
   XP_RULES,
   canonical,
   computeStats,
+  continueTimer,
   dayKey,
+  expireTimer,
   isValidDay,
   isoWeekday,
   mergeStates,
@@ -14,13 +16,33 @@ import {
   reminderContext,
   reminderMessage,
   sessionXP,
+  snoozeTimer,
+  timerElapsed,
   widgetSummary,
 } from './logic.js';
 import { WIDGET_FILE, syncWithGist, widgetDataUrl } from './sync.js';
 import { bookForm, projectForm, sessionForm, syncCard, views, widgetCard } from './views.js';
-import { $, $$, chime, closeModal, confetti, confirmDialog, esc, fmtClock, fmtNum, initTooltips, openModal, toast, unlockAudio } from './ui.js';
+import {
+  $,
+  $$,
+  alarmRinging,
+  chime,
+  closeModal,
+  confetti,
+  confirmDialog,
+  esc,
+  fmtClock,
+  fmtMin,
+  fmtNum,
+  initTooltips,
+  openModal,
+  startAlarm,
+  stopAlarm,
+  toast,
+  unlockAudio,
+} from './ui.js';
 
-const VERSION = '1.1.1';
+const VERSION = '1.2.0';
 const APP_URL = new URL('./', location.href).href;
 const ROUTES = Object.keys(views);
 const ui = { libraryTab: 'books', historyLimit: 30, syncStatus: 'idle', syncError: '' };
@@ -188,12 +210,58 @@ function checkSeen() {
 
 // ---------------------------------------------------------------- Timer
 
-const elapsedMs = (t, now = Date.now()) => t.accMs + (t.runStart ? now - t.runStart : 0);
+const ALARM_RECENT_MS = 30000; // erst später bemerkter Ablauf → nur kurzer Ton statt Wecker
+let expiryTimeout = 0;
+
+// Mehrere offene Tabs: nur einer klingelt, und Antippen in einem Tab stellt alle ab.
+const TAB_ID = Math.random();
+const alarmChannel = 'BroadcastChannel' in window ? new BroadcastChannel('fortschritt-alarm') : null;
+alarmChannel?.addEventListener('message', ({ data }) => {
+  if (data?.type === 'stop' || (data?.type === 'ringing' && data.id < TAB_ID)) stopAlarm();
+});
+
+function silenceAlarm() {
+  stopAlarm();
+  alarmChannel?.postMessage({ type: 'stop' });
+}
 
 function saveTimer(next) {
   timer = next;
   store.setTimer(next);
+  if (!next) stopAlarm();
+  scheduleExpiry();
   updateWakeLock();
+}
+
+// Eigener Timeout genau zum Ablauf. Timeouts aus Nutzeraktionen (statt aus dem
+// Sekundentakt) drosselt der Browser in Hintergrund-Tabs kaum.
+function scheduleExpiry() {
+  clearTimeout(expiryTimeout);
+  if (!timer?.runStart || !(timer.targetMin > 0)) return;
+  const remaining = timer.targetMin * 60000 - timerElapsed(timer);
+  expiryTimeout = setTimeout(checkExpiry, Math.max(0, remaining) + 30);
+}
+
+// Countdown abgelaufen → Timer anhalten und klingeln wie ein Wecker.
+function checkExpiry() {
+  timer = store.getTimer(); // ein anderer Tab hat den Ablauf evtl. schon übernommen
+  const result = expireTimer(timer);
+  if (!result) return false;
+  // Wecker vor dem Speichern starten, damit die Bildschirmsperre aktiv bleibt
+  if (result.lateMs < ALARM_RECENT_MS) {
+    startAlarm({ onEnd: updateWakeLock });
+    alarmChannel?.postMessage({ type: 'ringing', id: TAB_ID });
+  } else if (!document.hidden) chime();
+  saveTimer(result.timer);
+  const minutes = fmtMin(result.timer.accMs / 60000);
+  notify(
+    '⏰ Zeit ist um!',
+    timer.kind === 'read' ? `${minutes} gelesen – trag deine Seiten ein und sammle deine XP.` : `${minutes} Deep Work geschafft – sammle deine XP ein.`,
+  );
+  if ($('#modal').open) toast({ icon: '⏰', title: 'Zeit ist um!', text: 'Speichere die Session unter „Fokus“.', kind: 'xp', timeout: 8000 });
+  else if (route() !== 'fokus') location.hash = '#/fokus';
+  else render();
+  return true;
 }
 
 function startTimer(kind, ref, minutes) {
@@ -204,19 +272,28 @@ function startTimer(kind, ref, minutes) {
   }
   unlockAudio();
   const now = Date.now();
-  saveTimer({ kind, ref: ref || '', targetMin: minutes || 0, startedAt: now, accMs: 0, runStart: now, alerted: false });
+  saveTimer({ kind, ref: ref || '', targetMin: minutes || 0, startedAt: now, accMs: 0, runStart: now });
   if (route() === 'fokus') render();
   else location.hash = '#/fokus';
 }
 
 function toggleTimer() {
-  if (!timer) return;
+  if (!timer || checkExpiry()) return;
   const now = Date.now();
-  if (timer.runStart) saveTimer({ ...timer, accMs: timer.accMs + (now - timer.runStart), runStart: null });
+  if (timer.expired) saveTimer(continueTimer(timer, now));
+  else if (timer.runStart) saveTimer({ ...timer, accMs: timerElapsed(timer, now), runStart: null });
   else {
     unlockAudio();
     saveTimer({ ...timer, runStart: now });
   }
+  render();
+}
+
+function snooze(minutes) {
+  if (!timer?.expired) return;
+  silenceAlarm();
+  unlockAudio();
+  saveTimer(minutes ? snoozeTimer(timer, minutes) : continueTimer(timer));
   render();
 }
 
@@ -226,61 +303,60 @@ function updateTimerUI() {
     document.title = 'Fortschritt';
     return;
   }
-  const ms = elapsedMs(timer);
   const target = timer.targetMin * 60000;
   const countdown = target > 0;
-  const over = countdown && ms >= target;
-  const shown = countdown && !over ? target - ms : ms - (over ? target : 0);
-  const clock = `${over ? '+' : ''}${fmtClock(shown)}`;
+  const ms = timerElapsed(timer);
+  if (countdown && !timer.expired && ms >= target && checkExpiry()) return;
+  const expired = !!timer.expired;
+  const clock = fmtClock(countdown ? Math.ceil(Math.max(0, target - ms) / 1000) * 1000 : ms);
   const xp = sessionXP({ kind: timer.kind, minutes: Math.floor(ms / 60000), pages: 0 });
 
   const time = $('#timer-time');
   if (time) {
     time.textContent = clock;
-    const sub = $('#timer-sub');
-    const goalText = countdown ? (over ? 'Zeit um – super! Beende, wenn du so weit bist.' : `von ${fmtClock(target)}`) : 'freie Session';
-    sub.textContent = `${goalText} · +${xp} XP`;
+    const done = fmtMin(ms / 60000);
+    $('#timer-sub').textContent = expired
+      ? timer.kind === 'read'
+        ? `${done} gelesen – jetzt Seiten eintragen`
+        : `${done} geschafft · +${xp} XP`
+      : `${countdown ? `von ${fmtClock(target)}` : 'freie Session'} · +${xp} XP`;
     const ringEl = $('#timer-progress');
     const c = Number(ringEl.dataset.c);
-    const frac = countdown ? Math.min(1, ms / target) : (ms % 3600000) / 3600000;
+    const frac = expired ? 1 : countdown ? Math.min(1, ms / target) : (ms % 3600000) / 3600000;
     ringEl.setAttribute('stroke-dashoffset', (c * (1 - frac)).toFixed(2));
-    $('#timer-card').classList.toggle('is-over', over);
   }
   if (!mini.hidden) {
     $('#mini-time').textContent = clock;
-    $('#mini-kind').textContent = timer.kind === 'work' ? '🎯' : '📖';
+    $('#mini-kind').textContent = expired ? '⏰' : timer.kind === 'work' ? '🎯' : '📖';
+    $('#mini-timer .mini-label').textContent = expired ? 'Zeit ist um!' : 'Session läuft';
+    $('#mini-toggle').hidden = expired;
     $('#mini-toggle').textContent = timer.runStart ? '⏸' : '▶';
     $('#mini-toggle').setAttribute('aria-label', timer.runStart ? 'Pause' : 'Weiter');
   }
-  document.title = `${timer.runStart ? '⏱' : '⏸'} ${clock} · Fortschritt`;
-
-  if (over && !timer.alerted) {
-    saveTimer({ ...timer, alerted: true });
-    chime();
-    toast({ icon: '⏰', title: 'Zeit um!', text: 'Beende die Session, um deine XP einzusammeln.', kind: 'xp', timeout: 8000 });
-    notify('Zeit um! ⏰', 'Deine Fokus-Session ist vorbei. Sammle deine XP ein.');
-  }
+  document.title = expired ? '⏰ Zeit ist um! · Fortschritt' : `${timer.runStart ? '⏱' : '⏸'} ${clock} · Fortschritt`;
 }
 
-async function systemNotification(title, body, tag) {
+async function systemNotification(title, body, tag, extra = {}) {
   if (!('Notification' in window) || Notification.permission !== 'granted') return false;
   try {
     const reg = await navigator.serviceWorker?.getRegistration();
-    if (reg) await reg.showNotification(title, { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag });
-    else new Notification(title, { body, icon: 'icons/icon-192.png', tag });
+    const options = { body, icon: 'icons/icon-192.png', badge: 'icons/icon-192.png', tag, ...extra };
+    if (reg) await reg.showNotification(title, options);
+    else new Notification(title, options);
     return true;
   } catch {
     return false;
   }
 }
 
+// Timer-Ende im Hintergrund (Laptop): Mitteilung bleibt stehen, bis du sie wegklickst
 function notify(title, body) {
-  if (document.hidden) systemNotification(title, body, 'timer');
+  if (document.hidden) systemNotification(title, body, 'timer', { requireInteraction: true });
 }
 
 let wakeLock = null;
 async function updateWakeLock() {
-  const want = !!timer?.runStart && store.getPrefs().wakeLock && document.visibilityState === 'visible';
+  const want = (!!timer?.runStart || alarmRinging()) && store.getPrefs().wakeLock && document.visibilityState === 'visible';
   try {
     if (want && !wakeLock && 'wakeLock' in navigator) {
       wakeLock = await navigator.wakeLock.request('screen');
@@ -296,8 +372,11 @@ async function updateWakeLock() {
 
 function stopTimer() {
   if (!timer) return;
+  silenceAlarm();
   const now = Date.now();
-  if (timer.runStart) saveTimer({ ...timer, accMs: timer.accMs + (now - timer.runStart), runStart: null });
+  const expired = expireTimer(timer, now);
+  if (expired) saveTimer(expired.timer);
+  else if (timer.runStart) saveTimer({ ...timer, accMs: timerElapsed(timer, now), runStart: null });
   const minutes = Math.max(1, Math.round(timer.accMs / 60000));
   const pref = { kind: timer.kind, day: dayKey(new Date(timer.startedAt)), minutes };
   if (timer.kind === 'work') pref.projectId = timer.ref;
@@ -308,6 +387,7 @@ function stopTimer() {
 
 async function discardTimer() {
   if (!timer) return;
+  silenceAlarm();
   const ok = await confirmDialog('Die laufende Session wird nicht gespeichert.', { title: 'Session verwerfen?', okLabel: 'Verwerfen', danger: true });
   if (!ok) return;
   saveTimer(null);
@@ -716,6 +796,8 @@ const actions = {
     startTimer(f.kind, ref, presetMinutes(f, f.kind === 'read' ? 'read' : 'work'));
   },
   'timer-toggle': toggleTimer,
+  'timer-snooze': () => snooze(5),
+  'timer-continue': () => snooze(0),
   'timer-stop': stopTimer,
   'timer-discard': discardTimer,
   'mini-open': () => (location.hash = '#/fokus'),
@@ -859,11 +941,19 @@ window.addEventListener('hashchange', () => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   timer = store.getTimer();
-  if (dayKey() !== renderedDay) render();
+  scheduleExpiry();
+  // Abgelaufener Timer wartet aufs Speichern → direkt zum Wecker-Bildschirm
+  if (timer?.expired && route() !== 'fokus' && !$('#modal').open) location.hash = '#/fokus';
+  else if (dayKey() !== renderedDay) render();
   else updateTimerUI();
   updateWakeLock();
   scheduleSync(300);
 });
+
+// Wie beim Wecker: jede Berührung oder Taste stellt den Ton ab
+for (const type of ['pointerdown', 'keydown']) {
+  document.addEventListener(type, () => (alarmRinging() || timer?.expired) && silenceAlarm(), true);
+}
 window.addEventListener('online', () => scheduleSync(300));
 window.addEventListener('offline', () => {
   if (store.getPrefs().sync?.token) {
@@ -874,6 +964,8 @@ window.addEventListener('offline', () => {
 window.addEventListener('storage', (e) => {
   if (e.key === 'fortschritt:timer:v1') {
     timer = store.getTimer();
+    if (!timer?.expired) stopAlarm(); // in einem anderen Tab gespeichert oder weitergemacht
+    scheduleExpiry();
     render();
   }
 });
@@ -896,6 +988,7 @@ setInterval(() => {
 applyTheme();
 initTooltips();
 render();
+scheduleExpiry();
 checkSeen();
 scheduleSync(800);
 
@@ -904,4 +997,4 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 }
 
 // Für Tests und Debugging
-window.fortschritt = { store, render, version: VERSION };
+window.fortschritt = { store, render, version: VERSION, alarmRinging };

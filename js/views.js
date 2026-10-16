@@ -362,7 +362,7 @@ export function viewFocus(ctx) {
           </div>
         </div>
         <button class="btn btn-xl btn-${kind}" data-action="timer-start">▶ Session starten</button>
-        <p class="hint">${kind === 'work' ? 'Handy weg, Benachrichtigungen aus, ein einziges Ziel. Jede Minute = 1 XP.' : 'Nach der Session trägst du ein, bis zu welcher Seite du gekommen bist. Jede Seite = 2 XP.'}</p>
+        <p class="hint">${kind === 'work' ? 'Handy weg, Benachrichtigungen aus, ein einziges Ziel. Jede Minute = 1 XP.' : 'Nach der Session trägst du ein, bis zu welcher Seite du gekommen bist. Jede Seite = 2 XP.'}${minutes ? ' Am Ende klingelt ein Wecker.' : ''}</p>
       </article>
       <article class="card tips">
         <h2>Warum das wirkt</h2>
@@ -385,13 +385,15 @@ function viewTimer(ctx) {
   const ref = kind === 'work' ? state.projects[timer.ref] : state.books[timer.ref];
   const label = ref && !ref.deleted ? (kind === 'work' ? projectLabel(ref) : `📖 ${ref.title}`) : kind === 'work' ? '🎯 Deep Work' : '📖 Lesen';
   const paused = !timer.runStart;
+  const expired = !!timer.expired;
+  const status = expired ? 'is-expired' : paused ? 'is-paused' : 'is-running';
   const size = 280;
   const stroke = 14;
   const r = (size - stroke) / 2;
   const c = 2 * Math.PI * r;
   return `
     <section class="page focus-page">
-      <article class="card timer-card kind-${kind} ${paused ? 'is-paused' : 'is-running'}" id="timer-card">
+      <article class="card timer-card kind-${kind} ${status}" id="timer-card">
         <div class="timer-ring-wrap">
           <svg class="timer-ring" viewBox="0 0 ${size} ${size}" aria-hidden="true">
             <circle class="ring-track" cx="${size / 2}" cy="${size / 2}" r="${r}" stroke-width="${stroke}" />
@@ -400,18 +402,32 @@ function viewTimer(ctx) {
               transform="rotate(-90 ${size / 2} ${size / 2})" />
           </svg>
           <div class="timer-center">
-            <div class="timer-label">${esc(label)}</div>
+            <div class="timer-label" ${expired ? 'role="alert"' : ''}>${expired ? '⏰ Zeit ist um!' : esc(label)}</div>
             <div class="timer-time" id="timer-time" aria-live="off">00:00</div>
             <div class="timer-sub" id="timer-sub"></div>
           </div>
         </div>
-        <div class="timer-actions">
-          <button class="btn btn-ghost btn-lg" data-action="timer-toggle">${paused ? '▶ Weiter' : '⏸ Pause'}</button>
-          <button class="btn btn-primary btn-lg" data-action="timer-stop">■ Fertig</button>
-        </div>
+        ${
+          expired
+            ? `<div class="timer-actions">
+                <button class="btn btn-primary btn-lg span-2" data-action="timer-stop">✓ XP einsammeln</button>
+                <button class="btn btn-ghost btn-lg" data-action="timer-snooze">＋5 Min</button>
+                <button class="btn btn-ghost btn-lg" data-action="timer-continue">Weitermachen</button>
+              </div>`
+            : `<div class="timer-actions">
+                <button class="btn btn-ghost btn-lg" data-action="timer-toggle">${paused ? '▶ Weiter' : '⏸ Pause'}</button>
+                <button class="btn btn-primary btn-lg" data-action="timer-stop">■ Fertig</button>
+              </div>`
+        }
         <button class="link-btn" data-action="timer-discard">Session verwerfen</button>
       </article>
-      <p class="hint center">Du kannst die App schließen – der Timer läuft weiter und ist beim nächsten Öffnen wieder da.</p>
+      <p class="hint center">${
+        expired
+          ? '„Weitermachen“ lässt die Zeit ohne Limit weiterlaufen – sie zählt mit.'
+          : timer.targetMin > 0
+            ? 'Lass die App geöffnet, damit am Ende der Wecker klingeln kann. Schließt du sie, läuft die Zeit trotzdem weiter.'
+            : 'Du kannst die App schließen – der Timer läuft weiter und ist beim nächsten Öffnen wieder da.'
+      }</p>
     </section>`;
 }
 
@@ -733,7 +749,7 @@ export function viewSettings(ctx) {
                 .join('')}
             </div>
           </div>
-          <label class="check"><input type="checkbox" data-change="wake-lock" ${prefs.wakeLock ? 'checked' : ''} /> Bildschirm während einer Session anlassen</label>
+          <label class="check"><input type="checkbox" data-change="wake-lock" ${prefs.wakeLock ? 'checked' : ''} /> Bildschirm während einer Session anlassen (damit der Wecker am Handy klingeln kann)</label>
           <div class="field">
             <span>Mitteilung bei Timer-Ende</span>
             ${notificationStatus()}

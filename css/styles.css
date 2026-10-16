@@ -1510,8 +1510,17 @@ body.has-mini-timer main {
   animation: blink 1.6s ease-in-out infinite;
 }
 
-.timer-card.is-over .timer-time {
+.timer-card.is-expired .timer-time {
   color: var(--good-text);
+}
+
+.timer-card.is-expired .timer-label {
+  font-size: 17px;
+  color: var(--text);
+}
+
+.timer-card.is-expired .timer-ring {
+  animation: alarm-glow 1.2s ease-in-out infinite;
 }
 
 .timer-actions {
@@ -1520,6 +1529,10 @@ body.has-mini-timer main {
   gap: 10px;
   width: 100%;
   max-width: 380px;
+}
+
+.timer-actions .span-2 {
+  grid-column: 1 / -1;
 }
 
 .mini-timer {
@@ -2645,6 +2658,13 @@ dialog::backdrop {
   50% {
     transform: scale(1.1);
     opacity: 1;
+  }
+}
+
+@keyframes alarm-glow {
+  50% {
+    transform: scale(1.03);
+    filter: drop-shadow(0 0 16px var(--xp));
   }
 }
 

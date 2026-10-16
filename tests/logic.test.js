@@ -3,14 +3,18 @@ import assert from 'node:assert/strict';
 import {
   addDays,
   computeStats,
+  continueTimer,
   dayKey,
   emptyState,
+  expireTimer,
   levelFromXP,
   levelInfo,
   mergeStates,
   presetMinutes,
   questsForDay,
   sessionXP,
+  snoozeTimer,
+  timerElapsed,
   TIMER_PRESETS,
   walkStreak,
   xpForLevel,
@@ -183,4 +187,36 @@ test('Timer-Vorgaben je Session-Art', () => {
   assert.equal(presetMinutes({ minutes: 0 }, 'read'), 0);
   // Ungültige Werte fallen auf den Standard zurück
   assert.equal(presetMinutes({ readMinutes: 50 }, 'read'), 30);
+});
+
+test('Timer hält bei Ablauf an – wie ein Wecker', () => {
+  const start = 1_000_000;
+  const t = { kind: 'read', targetMin: 15, startedAt: start, accMs: 0, runStart: start };
+  assert.equal(expireTimer(t, start + 14 * 60000), null);
+  // 2 s nach Ablauf erkannt: Zeit auf genau 15 Min begrenzt, Timer steht
+  const r = expireTimer(t, start + 15 * 60000 + 2000);
+  assert.equal(r.lateMs, 2000);
+  assert.equal(r.timer.accMs, 15 * 60000);
+  assert.equal(r.timer.runStart, null);
+  assert.equal(r.timer.expired, true);
+  assert.equal(timerElapsed(r.timer, start + 60 * 60000), 15 * 60000);
+  // Erst viel später bemerkt (App war im Hintergrund): trotzdem nur 15 Min
+  assert.equal(expireTimer(t, start + 40 * 60000).timer.accMs, 15 * 60000);
+  // Bereits abgelaufen oder freier Modus: nichts zu tun
+  assert.equal(expireTimer(r.timer, start + 20 * 60000), null);
+  assert.equal(expireTimer({ ...t, targetMin: 0 }, start + 99 * 60000), null);
+});
+
+test('Nach Ablauf: +5 Min oder ohne Limit weitermachen', () => {
+  const now = 5_000_000;
+  const done = { kind: 'work', targetMin: 25, startedAt: 0, accMs: 25 * 60000, runStart: null, expired: true };
+  const snoozed = snoozeTimer(done, 5, now);
+  assert.equal(snoozed.expired, false);
+  assert.equal(snoozed.targetMin, 30);
+  assert.equal(expireTimer(snoozed, now + 4 * 60000), null);
+  assert.equal(expireTimer(snoozed, now + 5 * 60000).timer.accMs, 30 * 60000);
+  const open = continueTimer(done, now);
+  assert.equal(open.targetMin, 0);
+  assert.equal(timerElapsed(open, now + 10 * 60000), 35 * 60000);
+  assert.equal(expireTimer(open, now + 99 * 60000), null);
 });

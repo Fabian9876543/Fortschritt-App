@@ -678,6 +678,32 @@ export function computeStats(state, today = dayKey()) {
   return stats;
 }
 
+// ---------------------------------------------------------------- Timer
+
+export function timerElapsed(t, now = Date.now()) {
+  return t.accMs + (t.runStart ? now - t.runStart : 0);
+}
+
+// Ist der Countdown abgelaufen, hält der Timer bei der Zielzeit an – wie ein
+// Wecker. Liefert den neuen Zustand und wie lange der Ablauf schon her ist.
+export function expireTimer(t, now = Date.now()) {
+  if (!t || !(t.targetMin > 0) || t.expired) return null;
+  const target = t.targetMin * 60000;
+  const late = timerElapsed(t, now) - target;
+  if (late < 0) return null;
+  return { timer: { ...t, accMs: target, runStart: null, expired: true }, lateMs: late };
+}
+
+// Nach dem Ablauf ein paar Minuten dranhängen …
+export function snoozeTimer(t, minutes, now = Date.now()) {
+  return { ...t, targetMin: t.accMs / 60000 + minutes, runStart: now, expired: false };
+}
+
+// … oder ohne Zeitlimit weitermachen (die Zeit läuft ab der Zielzeit weiter).
+export function continueTimer(t, now = Date.now()) {
+  return { ...t, targetMin: 0, runStart: now, expired: false };
+}
+
 // ---------------------------------------------------------------- Erinnerungen & Widget
 
 // Kompakter Tagesstand, aus dem Erinnerungstexte entstehen. Dieselbe Form
