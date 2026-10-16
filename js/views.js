@@ -1,7 +1,19 @@
 // Die einzelnen Seiten der App als HTML-Strings. Nutzereingaben laufen immer
 // durch esc(). Interaktion läuft über data-action-Attribute (siehe app.js).
 
-import { LEVEL_TITLES, REMINDER_TYPES, XP_RULES, FREEZE_EVERY, FREEZE_MAX, addDays, daysBetween, sessionXP, startOfWeek } from './logic.js';
+import {
+  LEVEL_TITLES,
+  REMINDER_TYPES,
+  TIMER_PRESETS,
+  XP_RULES,
+  FREEZE_EVERY,
+  FREEZE_MAX,
+  addDays,
+  daysBetween,
+  presetMinutes,
+  sessionXP,
+  startOfWeek,
+} from './logic.js';
 import { barList, columnChart, heatmap, ring } from './charts.js';
 import { esc, fmtAgo, fmtDate, fmtDay, fmtHours, fmtLongDay, fmtMin, fmtNum } from './ui.js';
 
@@ -310,19 +322,14 @@ export function refOptions(ctx, kind, selected) {
   ].join('');
 }
 
-const DURATIONS = [
-  { v: 0, label: 'Frei' },
-  { v: 25, label: '25 Min' },
-  { v: 50, label: '50 Min' },
-  { v: 90, label: '90 Min' },
-];
-
 export function viewFocus(ctx) {
   const { prefs, timer, stats } = ctx;
   if (timer) return viewTimer(ctx);
   const f = prefs.focus;
   const kind = f.kind === 'read' ? 'read' : 'work';
   const ref = kind === 'work' ? f.workRef : f.readRef;
+  const presets = TIMER_PRESETS[kind].options;
+  const minutes = presetMinutes(f, kind);
   const t = stats.todayAgg;
   const g = stats.goals;
   const left =
@@ -351,7 +358,7 @@ export function viewFocus(ctx) {
         <div class="field">
           <span>Dauer</span>
           <div class="chips" role="radiogroup" aria-label="Dauer">
-            ${DURATIONS.map((d) => `<button role="radio" aria-checked="${f.minutes === d.v}" class="chip" data-action="focus-minutes" data-minutes="${d.v}">${d.label}</button>`).join('')}
+            ${presets.map((v) => `<button role="radio" aria-checked="${v === minutes}" class="chip" data-action="focus-minutes" data-minutes="${v}">${v ? `${v} Min` : 'Frei'}</button>`).join('')}
           </div>
         </div>
         <button class="btn btn-xl btn-${kind}" data-action="timer-start">▶ Session starten</button>
@@ -360,8 +367,12 @@ export function viewFocus(ctx) {
       <article class="card tips">
         <h2>Warum das wirkt</h2>
         <ul>
-          <li><strong>Kleiner Start:</strong> Schon 25 Minuten zählen – Hauptsache, du fängst an.</li>
-          <li><strong>Deep Dive:</strong> Ab 45–90 Minuten am Stück gibt's oft Quest-Boni.</li>
+          <li><strong>Kleiner Start:</strong> Schon ${presets[1]} Minuten zählen – Hauptsache, du fängst an.</li>
+          ${
+            kind === 'work'
+              ? "<li><strong>Deep Dive:</strong> Ab 45–90 Minuten am Stück gibt's oft Quest-Boni.</li>"
+              : '<li><strong>Am Stück:</strong> 30 Minuten ohne Unterbrechung lesen bringt oft Quest-Boni.</li>'
+          }
           <li><strong>Streak:</strong> Ein erreichtes Tagesziel pro Tag hält die Flamme am Leben.</li>
         </ul>
       </article>

@@ -18,6 +18,20 @@ export const XP_RULES = {
 export const FREEZE_EVERY = 7;
 export const FREEZE_MAX = 2;
 
+// Timer-Vorgaben in Minuten je Session-Art (0 = frei, ohne Countdown).
+export const TIMER_PRESETS = {
+  work: { options: [0, 25, 50, 90], default: 50 },
+  read: { options: [0, 15, 30, 60], default: 30 },
+};
+
+// Gewählte Timer-Dauer je Art. Ältere Einstellungen hatten eine gemeinsame
+// Dauer (focus.minutes) – sie gilt weiter, sofern sie zu den Vorgaben passt.
+export function presetMinutes(focus, kind) {
+  const preset = TIMER_PRESETS[kind];
+  const value = focus?.[`${kind}Minutes`] ?? focus?.minutes;
+  return preset.options.includes(value) ? value : preset.default;
+}
+
 // Erinnerungen kommen nur, wenn das jeweilige Ziel an dem Tag noch offen ist.
 // Wochentage nach ISO: 1 = Montag … 7 = Sonntag.
 export const REMINDER_TYPES = {

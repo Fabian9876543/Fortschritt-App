@@ -10,7 +10,7 @@ Läuft auf **Laptop und Handy**, lässt sich wie eine normale App installieren, 
 
 ## Was die App kann
 
-- **Fokus-Timer** für Deep Work und Lesen – frei oder mit 25 / 50 / 90 Minuten. Läuft weiter, auch wenn du die App schließt.
+- **Fokus-Timer** – Deep Work frei oder mit 25 / 50 / 90 Minuten, Lesen frei oder mit 15 / 30 / 60 Minuten. Läuft weiter, auch wenn du die App schließt.
 - **Bücher** mit Seitenzahl und Fortschrittsbalken („noch 120 Seiten – ca. 6 Tage bei deinem Ziel“).
 - **Projekte** für deine Deep-Work-Zeit, optional mit Stundenziel.
 - **Tagesziele** (Standard: 60 Min Deep Work, 20 Seiten) als Fortschrittsringe.

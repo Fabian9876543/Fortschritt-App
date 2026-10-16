@@ -10,6 +10,7 @@ import {
   isoWeekday,
   mergeStates,
   normalizeState,
+  presetMinutes,
   reminderContext,
   reminderMessage,
   sessionXP,
@@ -19,7 +20,7 @@ import { WIDGET_FILE, syncWithGist, widgetDataUrl } from './sync.js';
 import { bookForm, projectForm, sessionForm, syncCard, views, widgetCard } from './views.js';
 import { $, $$, chime, closeModal, confetti, confirmDialog, esc, fmtClock, fmtNum, initTooltips, openModal, toast, unlockAudio } from './ui.js';
 
-const VERSION = '1.1.0';
+const VERSION = '1.1.1';
 const APP_URL = new URL('./', location.href).href;
 const ROUTES = Object.keys(views);
 const ui = { libraryTab: 'books', historyLimit: 30, syncStatus: 'idle', syncError: '' };
@@ -686,28 +687,33 @@ const actions = {
   'quick-start': (el) => {
     const f = store.getPrefs().focus;
     const kind = el.dataset.kind;
-    startTimer(kind, kind === 'work' ? f.workRef : f.readRef, f.minutes);
+    startTimer(kind, kind === 'work' ? f.workRef : f.readRef, presetMinutes(f, kind));
   },
   'start-book': (el) => {
     store.setPrefs({ focus: { ...store.getPrefs().focus, kind: 'read', readRef: el.dataset.id } });
-    startTimer('read', el.dataset.id, store.getPrefs().focus.minutes);
+    startTimer('read', el.dataset.id, presetMinutes(store.getPrefs().focus, 'read'));
   },
   'start-project': (el) => {
     store.setPrefs({ focus: { ...store.getPrefs().focus, kind: 'work', workRef: el.dataset.id } });
-    startTimer('work', el.dataset.id, store.getPrefs().focus.minutes);
+    startTimer('work', el.dataset.id, presetMinutes(store.getPrefs().focus, 'work'));
   },
   'focus-kind': (el) => {
     store.setPrefs({ focus: { ...store.getPrefs().focus, kind: el.dataset.kind } });
     render();
   },
   'focus-minutes': (el) => {
-    store.setPrefs({ focus: { ...store.getPrefs().focus, minutes: Number(el.dataset.minutes) } });
+    const f = store.getPrefs().focus;
+    const kind = f.kind === 'read' ? 'read' : 'work';
+    // Beide Dauern festschreiben und die alte gemeinsame Einstellung ablösen
+    const next = { ...f, workMinutes: presetMinutes(f, 'work'), readMinutes: presetMinutes(f, 'read'), [`${kind}Minutes`]: Number(el.dataset.minutes) };
+    delete next.minutes;
+    store.setPrefs({ focus: next });
     render();
   },
   'timer-start': () => {
     const f = store.getPrefs().focus;
     const ref = $('#focus-ref')?.value || '';
-    startTimer(f.kind, ref, f.minutes);
+    startTimer(f.kind, ref, presetMinutes(f, f.kind === 'read' ? 'read' : 'work'));
   },
   'timer-toggle': toggleTimer,
   'timer-stop': stopTimer,

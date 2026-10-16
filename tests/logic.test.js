@@ -8,8 +8,10 @@ import {
   levelFromXP,
   levelInfo,
   mergeStates,
+  presetMinutes,
   questsForDay,
   sessionXP,
+  TIMER_PRESETS,
   walkStreak,
   xpForLevel,
 } from '../js/logic.js';
@@ -164,4 +166,21 @@ test('Erfolge werden freigeschaltet', () => {
   assert.ok(done.has('deep90'));
   assert.ok(done.has('early'));
   assert.ok(!done.has('book1'));
+});
+
+test('Timer-Vorgaben je Session-Art', () => {
+  assert.deepEqual(TIMER_PRESETS.work.options, [0, 25, 50, 90]);
+  assert.deepEqual(TIMER_PRESETS.read.options, [0, 15, 30, 60]);
+  // Standard ohne gespeicherte Auswahl
+  assert.equal(presetMinutes({}, 'work'), 50);
+  assert.equal(presetMinutes({}, 'read'), 30);
+  // Getrennte Auswahl je Art
+  assert.equal(presetMinutes({ workMinutes: 90, readMinutes: 15 }, 'work'), 90);
+  assert.equal(presetMinutes({ workMinutes: 90, readMinutes: 15 }, 'read'), 15);
+  // Alte gemeinsame Einstellung: gilt, wenn sie passt – sonst Standard
+  assert.equal(presetMinutes({ minutes: 25 }, 'work'), 25);
+  assert.equal(presetMinutes({ minutes: 25 }, 'read'), 30);
+  assert.equal(presetMinutes({ minutes: 0 }, 'read'), 0);
+  // Ungültige Werte fallen auf den Standard zurück
+  assert.equal(presetMinutes({ readMinutes: 50 }, 'read'), 30);
 });
