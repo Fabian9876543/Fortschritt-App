@@ -687,6 +687,25 @@ body.has-mini-timer main {
   cursor: pointer;
 }
 
+.link-btn.inline {
+  padding: 0;
+  font-size: inherit;
+  font-weight: 650;
+  color: var(--text);
+}
+
+#phone-timer-card {
+  scroll-margin-top: 84px;
+}
+
+.setup-steps code {
+  white-space: nowrap;
+}
+
+.focus-setup .phone-hint {
+  margin-top: -10px;
+}
+
 .row-actions {
   display: flex;
   flex-wrap: wrap;

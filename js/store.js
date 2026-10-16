@@ -113,6 +113,7 @@ const prefDefaults = {
   lastLevel: null,
   focus: { kind: 'work', workRef: '', readRef: '' }, // Timer-Dauern: workMinutes/readMinutes, siehe presetMinutes()
   wakeLock: true,
+  phoneTimer: false, // beim Start den iPhone-Timer per Kurzbefehl mitstarten
   localReminders: false, // Erinnerungen anzeigen, solange die App offen ist
   reminderLog: {}, // bereits gezeigte Erinnerungen { "read:2026-10-15": 1 }
 };

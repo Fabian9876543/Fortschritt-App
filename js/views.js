@@ -3,6 +3,7 @@
 
 import {
   LEVEL_TITLES,
+  PHONE_TIMER_SHORTCUT,
   REMINDER_TYPES,
   TIMER_PRESETS,
   XP_RULES,
@@ -363,6 +364,13 @@ export function viewFocus(ctx) {
         </div>
         <button class="btn btn-xl btn-${kind}" data-action="timer-start">▶ Session starten</button>
         <p class="hint">${kind === 'work' ? 'Handy weg, Benachrichtigungen aus, ein einziges Ziel. Jede Minute = 1 XP.' : 'Nach der Session trägst du ein, bis zu welcher Seite du gekommen bist. Jede Seite = 2 XP.'}${minutes ? ' Am Ende klingelt ein Wecker.' : ''}</p>
+        ${
+          minutes && ctx.isIOS
+            ? prefs.phoneTimer
+              ? '<p class="hint phone-hint">📱 Der iPhone-Timer wird mitgestartet. Danach oben links auf „◀ Fortschritt“ tippen, um zurückzukommen.</p>'
+              : '<p class="hint phone-hint">📱 Auch bei gesperrtem iPhone klingeln lassen? <button class="link-btn inline" data-action="setup-phone-timer">iPhone-Timer einrichten</button></p>'
+            : ''
+        }
       </article>
       <article class="card tips">
         <h2>Warum das wirkt</h2>
@@ -424,9 +432,13 @@ function viewTimer(ctx) {
       <p class="hint center">${
         expired
           ? '„Weitermachen“ lässt die Zeit ohne Limit weiterlaufen – sie zählt mit.'
-          : timer.targetMin > 0
-            ? 'Lass die App geöffnet, damit am Ende der Wecker klingeln kann. Schließt du sie, läuft die Zeit trotzdem weiter.'
-            : 'Du kannst die App schließen – der Timer läuft weiter und ist beim nächsten Öffnen wieder da.'
+          : timer.targetMin > 0 && timer.phone && timer.phoneOk
+            ? '📱 Der iPhone-Timer klingelt am Ende – auch wenn das Handy gesperrt ist. Du kannst es also weglegen.'
+            : timer.targetMin > 0 && timer.phone
+              ? '📱 Geht die Kurzbefehle-App nicht auf, klingelt am Ende die App selbst – lass sie dann geöffnet.'
+              : timer.targetMin > 0
+                ? 'Lass die App geöffnet, damit am Ende der Wecker klingeln kann. Schließt du sie, läuft die Zeit trotzdem weiter.'
+                : 'Du kannst die App schließen – der Timer läuft weiter und ist beim nächsten Öffnen wieder da.'
       }</p>
     </section>`;
 }
@@ -714,6 +726,25 @@ function notificationStatus(action = 'notify-permission') {
   return `<button class="btn btn-ghost" data-action="${action}">Mitteilungen erlauben</button>`;
 }
 
+// Nur auf iPhone/iPad: echter Timer der Uhr-App per Kurzbefehl
+export function phoneTimerCard(ctx) {
+  if (!ctx.isIOS) return '';
+  return `
+    <article class="card" id="phone-timer-card">
+      <header class="card-head"><h2>⏰ Wecker bei gesperrtem iPhone</h2></header>
+      <p>Ist das iPhone gesperrt, hält es Web-Apps an – Fortschritt kann dann nicht klingeln. Die Lösung: Beim Start einer Session stellt die App zusätzlich den <strong>echten iPhone-Timer</strong>. Der klingelt immer, auch gesperrt und im Lautlos-Modus.</p>
+      <ol class="setup-steps">
+        <li><span>App <strong>Kurzbefehle</strong> öffnen und oben rechts auf <strong>＋</strong> tippen.</span></li>
+        <li><span><strong>Aktion hinzufügen</strong> → nach <strong>„Timer starten“</strong> suchen und antippen.</span></li>
+        <li><span>In der Aktion auf die Dauer tippen, in der Leiste über der Tastatur <strong>„Kurzbefehleingabe“</strong> wählen und als Einheit <strong>Minuten</strong> lassen.</span></li>
+        <li><span>Oben auf den Namen tippen → <strong>Umbenennen</strong> → genau <code>${esc(PHONE_TIMER_SHORTCUT)}</code> eingeben → <strong>Fertig</strong>.</span></li>
+        <li><span>Testen: Es sollte ein 1-Minuten-Timer starten.</span><button class="btn btn-ghost" data-action="phone-timer-test">📱 Test-Timer (1 Min)</button></li>
+      </ol>
+      <label class="check"><input type="checkbox" data-change="phone-timer" ${ctx.prefs.phoneTimer ? 'checked' : ''} /> Beim Start einer Session den iPhone-Timer mitstarten</label>
+      <p class="hint">Beim Start springt das iPhone kurz in die Kurzbefehle-App – zurück kommst du oben links über „◀ Fortschritt“. Hörst du früher auf oder pausierst, stoppe bzw. pausiere den iPhone-Timer auf dem Sperrbildschirm.</p>
+    </article>`;
+}
+
 export function viewSettings(ctx) {
   const { state, prefs } = ctx;
   const g = state.profile.goals;
@@ -756,6 +787,7 @@ export function viewSettings(ctx) {
           </div>
         </article>
       </div>
+      ${phoneTimerCard(ctx)}
       ${syncCard(ctx)}
       <article class="card">
         <header class="card-head"><h2>Daten</h2></header>

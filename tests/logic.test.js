@@ -10,6 +10,7 @@ import {
   levelFromXP,
   levelInfo,
   mergeStates,
+  phoneTimerUrl,
   presetMinutes,
   questsForDay,
   sessionXP,
@@ -219,4 +220,13 @@ test('Nach Ablauf: +5 Min oder ohne Limit weitermachen', () => {
   assert.equal(open.targetMin, 0);
   assert.equal(timerElapsed(open, now + 10 * 60000), 35 * 60000);
   assert.equal(expireTimer(open, now + 99 * 60000), null);
+});
+
+test('iPhone-Timer: Link zum Kurzbefehl mit Minuten als Eingabe', () => {
+  assert.equal(phoneTimerUrl(15), 'shortcuts://run-shortcut?name=Fortschritt-Timer&input=text&text=15');
+  assert.equal(phoneTimerUrl(5), 'shortcuts://run-shortcut?name=Fortschritt-Timer&input=text&text=5');
+  assert.equal(phoneTimerUrl(30, 'Mein Timer ä'), 'shortcuts://run-shortcut?name=Mein%20Timer%20%C3%A4&input=text&text=30');
+  // Nach „Weitermachen“ (ohne Limit) gehört kein iPhone-Timer mehr dazu
+  const done = { kind: 'read', targetMin: 30, startedAt: 0, accMs: 30 * 60000, runStart: null, expired: true, phone: true };
+  assert.equal(continueTimer(done, 1).phone, false);
 });

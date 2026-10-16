@@ -12,6 +12,7 @@ import {
   isoWeekday,
   mergeStates,
   normalizeState,
+  phoneTimerUrl,
   presetMinutes,
   reminderContext,
   reminderMessage,
@@ -42,10 +43,11 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.2.0';
+const VERSION = '1.3.0';
 const APP_URL = new URL('./', location.href).href;
+const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
-const ui = { libraryTab: 'books', historyLimit: 30, syncStatus: 'idle', syncError: '' };
+const ui = { libraryTab: 'books', historyLimit: 30, syncStatus: 'idle', syncError: '', scrollTarget: null };
 let stats = null;
 let timer = store.getTimer();
 let renderedDay = dayKey();
@@ -69,6 +71,7 @@ function context() {
     route: route(),
     version: VERSION,
     canInstall: !!installPrompt,
+    isIOS: IS_IOS,
   };
 }
 
@@ -242,13 +245,39 @@ function scheduleExpiry() {
   expiryTimeout = setTimeout(checkExpiry, Math.max(0, remaining) + 30);
 }
 
+// iPhone-Timer: startet per Kurzbefehl den echten Timer der Uhr-App. Muss direkt
+// aus einer Tipp-Geste heraus passieren, sonst blockiert iOS den App-Wechsel.
+const phoneTimerOn = () => IS_IOS && !!store.getPrefs().phoneTimer;
+let phoneLaunchAt = 0;
+
+// Ob der iPhone-Timer wirklich läuft, sieht die App nicht. Wechselt das iPhone
+// aber kurz nach dem Start in die Kurzbefehle-App (Seite wird verdeckt), gilt er
+// als gestartet (phoneOk). Sonst klingelt am Ende vorsichtshalber die App selbst.
+const phoneTimerActive = (t) => !!(t?.phone && t.phoneOk);
+
+function openPhoneTimer(minutes) {
+  phoneLaunchAt = Date.now();
+  const link = document.createElement('a');
+  link.href = phoneTimerUrl(minutes);
+  document.body.append(link);
+  link.click();
+  link.remove();
+}
+
+function phoneTimerHint(text) {
+  const title = 'Der iPhone-Timer läuft weiter';
+  if (!phoneTimerActive(timer) || timer.expired || $$('.toast strong').some((el) => el.textContent === title)) return;
+  toast({ icon: '📱', title, text, timeout: 7000 });
+}
+
 // Countdown abgelaufen → Timer anhalten und klingeln wie ein Wecker.
 function checkExpiry() {
   timer = store.getTimer(); // ein anderer Tab hat den Ablauf evtl. schon übernommen
   const result = expireTimer(timer);
   if (!result) return false;
-  // Wecker vor dem Speichern starten, damit die Bildschirmsperre aktiv bleibt
-  if (result.lateMs < ALARM_RECENT_MS) {
+  // Wecker vor dem Speichern starten, damit die Bildschirmsperre aktiv bleibt.
+  // Läuft der iPhone-Timer mit, klingelt der – hier dann nur ein kurzer Hinweiston.
+  if (result.lateMs < ALARM_RECENT_MS && !phoneTimerActive(timer)) {
     startAlarm({ onEnd: updateWakeLock });
     alarmChannel?.postMessage({ type: 'ringing', id: TAB_ID });
   } else if (!document.hidden) chime();
@@ -272,17 +301,21 @@ function startTimer(kind, ref, minutes) {
   }
   unlockAudio();
   const now = Date.now();
-  saveTimer({ kind, ref: ref || '', targetMin: minutes || 0, startedAt: now, accMs: 0, runStart: now });
+  const phone = minutes > 0 && phoneTimerOn();
+  saveTimer({ kind, ref: ref || '', targetMin: minutes || 0, startedAt: now, accMs: 0, runStart: now, phone, phoneOk: false });
   if (route() === 'fokus') render();
   else location.hash = '#/fokus';
+  if (phone) openPhoneTimer(minutes);
 }
 
 function toggleTimer() {
   if (!timer || checkExpiry()) return;
   const now = Date.now();
   if (timer.expired) saveTimer(continueTimer(timer, now));
-  else if (timer.runStart) saveTimer({ ...timer, accMs: timerElapsed(timer, now), runStart: null });
-  else {
+  else if (timer.runStart) {
+    saveTimer({ ...timer, accMs: timerElapsed(timer, now), runStart: null });
+    phoneTimerHint('Pausiere ihn auf dem Sperrbildschirm, sonst klingelt er zur ursprünglichen Zeit.');
+  } else {
     unlockAudio();
     saveTimer({ ...timer, runStart: now });
   }
@@ -293,8 +326,10 @@ function snooze(minutes) {
   if (!timer?.expired) return;
   silenceAlarm();
   unlockAudio();
-  saveTimer(minutes ? snoozeTimer(timer, minutes) : continueTimer(timer));
+  const phone = minutes > 0 && phoneTimerOn();
+  saveTimer(minutes ? { ...snoozeTimer(timer, minutes), phone, phoneOk: false } : continueTimer(timer));
   render();
+  if (phone) openPhoneTimer(minutes);
 }
 
 function updateTimerUI() {
@@ -377,6 +412,7 @@ function stopTimer() {
   const expired = expireTimer(timer, now);
   if (expired) saveTimer(expired.timer);
   else if (timer.runStart) saveTimer({ ...timer, accMs: timerElapsed(timer, now), runStart: null });
+  phoneTimerHint('Stoppe ihn auf dem Sperrbildschirm oder in der Uhr-App, sonst klingelt er noch.');
   const minutes = Math.max(1, Math.round(timer.accMs / 60000));
   const pref = { kind: timer.kind, day: dayKey(new Date(timer.startedAt)), minutes };
   if (timer.kind === 'work') pref.projectId = timer.ref;
@@ -390,6 +426,7 @@ async function discardTimer() {
   silenceAlarm();
   const ok = await confirmDialog('Die laufende Session wird nicht gespeichert.', { title: 'Session verwerfen?', okLabel: 'Verwerfen', danger: true });
   if (!ok) return;
+  phoneTimerHint('Stoppe ihn auf dem Sperrbildschirm oder in der Uhr-App, sonst klingelt er noch.');
   saveTimer(null);
   render();
 }
@@ -797,6 +834,12 @@ const actions = {
   },
   'timer-toggle': toggleTimer,
   'timer-snooze': () => snooze(5),
+  'phone-timer-test': () => openPhoneTimer(1),
+  'setup-phone-timer': () => {
+    ui.scrollTarget = 'phone-timer-card';
+    if (route() === 'einstellungen') scrollToTarget();
+    else location.hash = '#/einstellungen';
+  },
   'timer-continue': () => snooze(0),
   'timer-stop': stopTimer,
   'timer-discard': discardTimer,
@@ -902,6 +945,9 @@ document.addEventListener('change', (e) => {
       });
       if ('Notification' in window && Notification.permission === 'default') Notification.requestPermission().then(render);
     }
+  } else if (el.dataset.change === 'phone-timer') {
+    store.setPrefs({ phoneTimer: el.checked });
+    render();
   } else if (el.dataset.change === 'wake-lock') {
     store.setPrefs({ wakeLock: el.checked });
     updateWakeLock();
@@ -935,16 +981,29 @@ store.subscribe((reason) => {
 window.addEventListener('hashchange', () => {
   closeModal();
   render();
-  window.scrollTo(0, 0);
+  scrollToTarget();
 });
 
+// Nach dem Seitenwechsel nach oben – oder zu einem gewünschten Abschnitt
+function scrollToTarget() {
+  const target = ui.scrollTarget && document.getElementById(ui.scrollTarget);
+  ui.scrollTarget = null;
+  if (target) target.scrollIntoView({ block: 'start' });
+  else window.scrollTo(0, 0);
+}
+
 document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden') {
+    // Kurz nach dem Start verdeckt → die Kurzbefehle-App ist aufgegangen
+    if (timer?.phone && !timer.phoneOk && Date.now() - phoneLaunchAt < 60000) saveTimer({ ...timer, phoneOk: true });
+    return;
+  }
   if (document.visibilityState !== 'visible') return;
   timer = store.getTimer();
   scheduleExpiry();
   // Abgelaufener Timer wartet aufs Speichern → direkt zum Wecker-Bildschirm
   if (timer?.expired && route() !== 'fokus' && !$('#modal').open) location.hash = '#/fokus';
-  else if (dayKey() !== renderedDay) render();
+  else if (dayKey() !== renderedDay || timer?.phone) render();
   else updateTimerUI();
   updateWakeLock();
   scheduleSync(300);

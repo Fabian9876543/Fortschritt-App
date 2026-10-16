@@ -700,8 +700,21 @@ export function snoozeTimer(t, minutes, now = Date.now()) {
 }
 
 // … oder ohne Zeitlimit weitermachen (die Zeit läuft ab der Zielzeit weiter).
+// Ohne Zielzeit gibt es auch keinen iPhone-Timer mehr, der dazugehört.
 export function continueTimer(t, now = Date.now()) {
-  return { ...t, targetMin: 0, runStart: now, expired: false };
+  return { ...t, targetMin: 0, runStart: now, expired: false, phone: false, phoneOk: false };
+}
+
+// ---------------------------------------------------------------- iPhone-Timer
+
+// Name des Kurzbefehls, den man einmalig in der Kurzbefehle-App anlegt. Er
+// startet den echten Timer der Uhr-App – der klingelt auch bei gesperrtem
+// iPhone und im Lautlos-Modus, was eine Web-App selbst nicht kann.
+export const PHONE_TIMER_SHORTCUT = 'Fortschritt-Timer';
+
+// Link, der den Kurzbefehl startet; die Minuten kommen als Text-Eingabe mit.
+export function phoneTimerUrl(minutes, name = PHONE_TIMER_SHORTCUT) {
+  return `shortcuts://run-shortcut?name=${encodeURIComponent(name)}&input=text&text=${encodeURIComponent(String(Math.round(minutes)))}`;
 }
 
 // ---------------------------------------------------------------- Erinnerungen & Widget
