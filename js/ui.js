@@ -70,10 +70,13 @@ export function fmtAgo(ts) {
 
 // ---------------------------------------------------------------- Toasts
 
-export function toast({ icon = '✨', title, text = '', kind = 'info', timeout = 3600 }) {
+// Mit id ersetzt der Toast einen älteren mit derselben id
+export function toast({ icon = '✨', title, text = '', kind = 'info', timeout = 3600, id = '' }) {
   const host = $('#toasts');
+  if (id) host.querySelector(`[data-id="${id}"]`)?.remove();
   const el = document.createElement('div');
   el.className = `toast toast-${kind}`;
+  if (id) el.dataset.id = id;
   el.setAttribute('role', kind === 'error' ? 'alert' : 'status');
   const i = document.createElement('span');
   i.className = 'toast-icon';

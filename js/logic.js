@@ -694,15 +694,31 @@ export function expireTimer(t, now = Date.now()) {
   return { timer: { ...t, accMs: target, runStart: null, expired: true }, lateMs: late };
 }
 
-// Nach dem Ablauf ein paar Minuten dranhängen …
+// Nach dem Ablauf ein paar Minuten dranhängen … Der alte iPhone-Timer hat dann
+// schon geklingelt; für die neuen Minuten braucht es einen neuen.
 export function snoozeTimer(t, minutes, now = Date.now()) {
-  return { ...t, targetMin: t.accMs / 60000 + minutes, runStart: now, expired: false };
+  return detachPhoneTimer({ ...t, targetMin: t.accMs / 60000 + minutes, runStart: now, expired: false });
 }
 
 // … oder ohne Zeitlimit weitermachen (die Zeit läuft ab der Zielzeit weiter).
 // Ohne Zielzeit gibt es auch keinen iPhone-Timer mehr, der dazugehört.
 export function continueTimer(t, now = Date.now()) {
-  return { ...t, targetMin: 0, runStart: now, expired: false, phone: false, phoneOk: false };
+  return detachPhoneTimer({ ...t, targetMin: 0, runStart: now, expired: false });
+}
+
+export function pauseTimer(t, now = Date.now()) {
+  return { ...t, accMs: timerElapsed(t, now), runStart: null };
+}
+
+// Weiter nach der Pause. Mit `minutes` endet der Countdown in genau so vielen
+// Minuten – zusammen mit dem neuen iPhone-Timer, der nur ganze Minuten kennt.
+export function resumeTimer(t, now = Date.now(), minutes = 0) {
+  return minutes ? { ...t, targetMin: t.accMs / 60000 + minutes, runStart: now } : { ...t, runStart: now };
+}
+
+// Restzeit eines Countdowns in ganzen Minuten (aufgerundet, mindestens 1)
+export function remainingMinutes(t, now = Date.now()) {
+  return Math.max(1, Math.ceil((t.targetMin * 60000 - timerElapsed(t, now)) / 60000));
 }
 
 // ---------------------------------------------------------------- iPhone-Timer
@@ -716,6 +732,35 @@ export const PHONE_TIMER_SHORTCUT = 'Fortschritt-Timer';
 export function phoneTimerUrl(minutes, name = PHONE_TIMER_SHORTCUT) {
   return `shortcuts://run-shortcut?name=${encodeURIComponent(name)}&input=text&text=${encodeURIComponent(String(Math.round(minutes)))}`;
 }
+
+// Ob der iPhone-Timer wirklich läuft, sieht die App nicht. Zustand im Timer:
+//   phone   – für diesen Countdown wurde der Kurzbefehl gestartet
+//   phoneAt – wann; nur kurz danach zählt ein Verdecken der Seite als Beleg
+//   phoneOk – belegt: die Seite wurde direkt danach verdeckt (Kurzbefehle ging auf)
+// Nur wenn belegt, schweigt der App-Wecker – sonst klingelt die App vorsichtshalber selbst.
+export const PHONE_CONFIRM_MS = 10000;
+
+export function launchPhoneTimer(t, now = Date.now()) {
+  return { ...t, phone: true, phoneOk: false, phoneAt: now };
+}
+
+// Seite verdeckt: kurz nach dem Start → Beleg, dass die Kurzbefehle-App aufging
+export function confirmPhoneTimer(t, now = Date.now()) {
+  if (!t?.phone || t.phoneOk || !t.phoneAt || now - t.phoneAt > PHONE_CONFIRM_MS) return null;
+  return { ...t, phoneOk: true, phoneAt: null };
+}
+
+// Tippen in der App: ein späteres Verdecken (z. B. Sperren) ist kein Beleg mehr
+export function closePhoneLaunch(t) {
+  return t?.phoneAt ? { ...t, phoneAt: null } : null;
+}
+
+// Pause oder vorzeitiges Ende: Der iPhone-Timer gehört nicht mehr dazu (man stoppt ihn selbst)
+export function detachPhoneTimer(t) {
+  return { ...t, phone: false, phoneOk: false, phoneAt: null };
+}
+
+export const phoneTimerActive = (t) => !!(t?.phone && t.phoneOk);
 
 // ---------------------------------------------------------------- Erinnerungen & Widget
 

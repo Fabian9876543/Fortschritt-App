@@ -367,7 +367,7 @@ export function viewFocus(ctx) {
         ${
           minutes && ctx.isIOS
             ? prefs.phoneTimer
-              ? '<p class="hint phone-hint">📱 Der iPhone-Timer wird mitgestartet. Danach oben links auf „◀ Fortschritt“ tippen, um zurückzukommen.</p>'
+              ? '<p class="hint phone-hint">📱 Der iPhone-Timer wird mitgestartet – dafür öffnet sich kurz die Kurzbefehle-App. Zurück kommst du oben links über ◀.</p>'
               : '<p class="hint phone-hint">📱 Auch bei gesperrtem iPhone klingeln lassen? <button class="link-btn inline" data-action="setup-phone-timer">iPhone-Timer einrichten</button></p>'
             : ''
         }
@@ -433,7 +433,7 @@ function viewTimer(ctx) {
         expired
           ? '„Weitermachen“ lässt die Zeit ohne Limit weiterlaufen – sie zählt mit.'
           : timer.targetMin > 0 && timer.phone && timer.phoneOk
-            ? '📱 Der iPhone-Timer klingelt am Ende – auch wenn das Handy gesperrt ist. Du kannst es also weglegen.'
+            ? '📱 Der iPhone-Timer klingelt am Ende – auch wenn das Handy gesperrt ist. Du kannst es also weglegen. <button class="link-btn inline" data-action="phone-timer-off">Kein Timer gestartet?</button>'
             : timer.targetMin > 0 && timer.phone
               ? '📱 Geht die Kurzbefehle-App nicht auf, klingelt am Ende die App selbst – lass sie dann geöffnet.'
               : timer.targetMin > 0
@@ -732,16 +732,17 @@ export function phoneTimerCard(ctx) {
   return `
     <article class="card" id="phone-timer-card">
       <header class="card-head"><h2>⏰ Wecker bei gesperrtem iPhone</h2></header>
-      <p>Ist das iPhone gesperrt, hält es Web-Apps an – Fortschritt kann dann nicht klingeln. Die Lösung: Beim Start einer Session stellt die App zusätzlich den <strong>echten iPhone-Timer</strong>. Der klingelt immer, auch gesperrt und im Lautlos-Modus.</p>
+      <p>Ist das iPhone gesperrt, hält es Web-Apps an – Fortschritt kann dann nicht klingeln. Die Lösung: Beim Start einer Session stellt die App zusätzlich den <strong>echten iPhone-Timer</strong>. Der klingelt auch gesperrt und im Lautlos-Modus.</p>
       <ol class="setup-steps">
         <li><span>App <strong>Kurzbefehle</strong> öffnen und oben rechts auf <strong>＋</strong> tippen.</span></li>
-        <li><span><strong>Aktion hinzufügen</strong> → nach <strong>„Timer starten“</strong> suchen und antippen.</span></li>
-        <li><span>In der Aktion auf die Dauer tippen, in der Leiste über der Tastatur <strong>„Kurzbefehleingabe“</strong> wählen und als Einheit <strong>Minuten</strong> lassen.</span></li>
-        <li><span>Oben auf den Namen tippen → <strong>Umbenennen</strong> → genau <code>${esc(PHONE_TIMER_SHORTCUT)}</code> eingeben → <strong>Fertig</strong>.</span></li>
-        <li><span>Testen: Es sollte ein 1-Minuten-Timer starten.</span><button class="btn btn-ghost" data-action="phone-timer-test">📱 Test-Timer (1 Min)</button></li>
+        <li><span><strong>Aktion hinzufügen</strong> → „Timer“ suchen → <strong>„Timer starten“</strong> (mit dem Uhr-Symbol) antippen.</span></li>
+        <li><span>In der Aktion auf die Zahl tippen und in der Leiste über der Tastatur <strong>„Kurzbefehleingabe“</strong> wählen. Als Einheit muss <strong>Minuten</strong> dastehen.</span></li>
+        <li><span>Oben auf den Namen tippen → <strong>Umbenennen</strong> → genau <code>${esc(PHONE_TIMER_SHORTCUT)}</code> eingeben (großes F und T) → <strong>Fertig</strong>.</span></li>
+        <li><span>In der <strong>Uhr</strong>-App unter <strong>Timer</strong> einen Ton fürs Timer-Ende wählen – nicht „Wiedergabe stoppen“, sonst bleibt er stumm.</span></li>
+        <li><span>Testen: Knopf drücken (fragt iOS nach, auf „Öffnen“ tippen), dann das iPhone sperren – nach einer Minute sollte es klingeln.</span><button class="btn btn-ghost" data-action="phone-timer-test">📱 Test-Timer (1 Min)</button></li>
       </ol>
-      <label class="check"><input type="checkbox" data-change="phone-timer" ${ctx.prefs.phoneTimer ? 'checked' : ''} /> Beim Start einer Session den iPhone-Timer mitstarten</label>
-      <p class="hint">Beim Start springt das iPhone kurz in die Kurzbefehle-App – zurück kommst du oben links über „◀ Fortschritt“. Hörst du früher auf oder pausierst, stoppe bzw. pausiere den iPhone-Timer auf dem Sperrbildschirm.</p>
+      <label class="check"><input type="checkbox" id="set-phone-timer" data-change="phone-timer" ${ctx.prefs.phoneTimer ? 'checked' : ''} /> Beim Start einer Session den iPhone-Timer mitstarten</label>
+      <p class="hint">Beim Start springt das iPhone kurz in die Kurzbefehle-App. Zurück kommst du über den kleinen Pfeil ◀ oben links (dort steht evtl. „Ohne Titel“) oder über den App-Umschalter. Pausierst du oder hörst früher auf, stoppe den iPhone-Timer selbst – beim Weitermachen stellt die App einen neuen. Klingelt er, beendet ihn „Stopp“; „Wiederholen“ startet ihn neu.</p>
     </article>`;
 }
 

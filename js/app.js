@@ -4,18 +4,26 @@ import * as store from './store.js';
 import {
   XP_RULES,
   canonical,
+  closePhoneLaunch,
   computeStats,
+  confirmPhoneTimer,
   continueTimer,
   dayKey,
+  detachPhoneTimer,
   expireTimer,
   isValidDay,
   isoWeekday,
+  launchPhoneTimer,
   mergeStates,
   normalizeState,
+  pauseTimer,
+  phoneTimerActive,
   phoneTimerUrl,
   presetMinutes,
+  remainingMinutes,
   reminderContext,
   reminderMessage,
+  resumeTimer,
   sessionXP,
   snoozeTimer,
   timerElapsed,
@@ -43,7 +51,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.3.0';
+const VERSION = '1.3.1';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
@@ -247,16 +255,10 @@ function scheduleExpiry() {
 
 // iPhone-Timer: startet per Kurzbefehl den echten Timer der Uhr-App. Muss direkt
 // aus einer Tipp-Geste heraus passieren, sonst blockiert iOS den App-Wechsel.
+// Ob er wirklich läuft, sieht die App nicht – siehe confirmPhoneTimer().
 const phoneTimerOn = () => IS_IOS && !!store.getPrefs().phoneTimer;
-let phoneLaunchAt = 0;
-
-// Ob der iPhone-Timer wirklich läuft, sieht die App nicht. Wechselt das iPhone
-// aber kurz nach dem Start in die Kurzbefehle-App (Seite wird verdeckt), gilt er
-// als gestartet (phoneOk). Sonst klingelt am Ende vorsichtshalber die App selbst.
-const phoneTimerActive = (t) => !!(t?.phone && t.phoneOk);
 
 function openPhoneTimer(minutes) {
-  phoneLaunchAt = Date.now();
   const link = document.createElement('a');
   link.href = phoneTimerUrl(minutes);
   document.body.append(link);
@@ -264,10 +266,11 @@ function openPhoneTimer(minutes) {
   link.remove();
 }
 
-function phoneTimerHint(text) {
-  const title = 'Der iPhone-Timer läuft weiter';
-  if (!phoneTimerActive(timer) || timer.expired || $$('.toast strong').some((el) => el.textContent === title)) return;
-  toast({ icon: '📱', title, text, timeout: 7000 });
+// Die App kann den iPhone-Timer nicht anhalten – das muss man selbst tun.
+const PHONE_STOP_TEXT = 'Er läuft sonst weiter und klingelt trotzdem. Das geht auf dem Sperrbildschirm oder in der Uhr-App.';
+function phoneTimerHint(text = PHONE_STOP_TEXT) {
+  if (!timer?.phone || timer.expired) return;
+  toast({ icon: '📱', title: 'Stoppe den iPhone-Timer', text, timeout: 9000, id: 'phone-timer' });
 }
 
 // Countdown abgelaufen → Timer anhalten und klingeln wie ein Wecker.
@@ -302,7 +305,8 @@ function startTimer(kind, ref, minutes) {
   unlockAudio();
   const now = Date.now();
   const phone = minutes > 0 && phoneTimerOn();
-  saveTimer({ kind, ref: ref || '', targetMin: minutes || 0, startedAt: now, accMs: 0, runStart: now, phone, phoneOk: false });
+  const next = { kind, ref: ref || '', targetMin: minutes || 0, startedAt: now, accMs: 0, runStart: now, phone: false, phoneOk: false };
+  saveTimer(phone ? launchPhoneTimer(next, now) : next);
   if (route() === 'fokus') render();
   else location.hash = '#/fokus';
   if (phone) openPhoneTimer(minutes);
@@ -313,11 +317,16 @@ function toggleTimer() {
   const now = Date.now();
   if (timer.expired) saveTimer(continueTimer(timer, now));
   else if (timer.runStart) {
-    saveTimer({ ...timer, accMs: timerElapsed(timer, now), runStart: null });
-    phoneTimerHint('Pausiere ihn auf dem Sperrbildschirm, sonst klingelt er zur ursprünglichen Zeit.');
+    phoneTimerHint(
+      `Sonst klingelt er zur alten Zeit. Das geht auf dem Sperrbildschirm oder in der Uhr-App.${phoneTimerOn() ? ' Beim Weitermachen stellt die App einen neuen.' : ''}`,
+    );
+    saveTimer(detachPhoneTimer(pauseTimer(timer, now)));
   } else {
     unlockAudio();
-    saveTimer({ ...timer, runStart: now });
+    // Neuer iPhone-Timer für die Restzeit; ohne ihn klingelt am Ende die App
+    const minutes = timer.targetMin > 0 && phoneTimerOn() ? remainingMinutes(timer, now) : 0;
+    saveTimer(minutes ? launchPhoneTimer(resumeTimer(timer, now, minutes), now) : resumeTimer(timer, now));
+    if (minutes) openPhoneTimer(minutes);
   }
   render();
 }
@@ -326,8 +335,10 @@ function snooze(minutes) {
   if (!timer?.expired) return;
   silenceAlarm();
   unlockAudio();
+  const now = Date.now();
   const phone = minutes > 0 && phoneTimerOn();
-  saveTimer(minutes ? { ...snoozeTimer(timer, minutes), phone, phoneOk: false } : continueTimer(timer));
+  const next = minutes ? snoozeTimer(timer, minutes, now) : continueTimer(timer, now);
+  saveTimer(phone ? launchPhoneTimer(next, now) : next);
   render();
   if (phone) openPhoneTimer(minutes);
 }
@@ -410,14 +421,14 @@ function stopTimer() {
   silenceAlarm();
   const now = Date.now();
   const expired = expireTimer(timer, now);
-  if (expired) saveTimer(expired.timer);
-  else if (timer.runStart) saveTimer({ ...timer, accMs: timerElapsed(timer, now), runStart: null });
-  phoneTimerHint('Stoppe ihn auf dem Sperrbildschirm oder in der Uhr-App, sonst klingelt er noch.');
+  // Vor dem Ablauf beendet: Der iPhone-Timer läuft noch – Hinweis im Dialog (ein Toast läge dahinter)
+  const phoneNote = !expired && !!timer.phone && !timer.expired;
+  saveTimer(expired ? expired.timer : detachPhoneTimer(pauseTimer(timer, now)));
   const minutes = Math.max(1, Math.round(timer.accMs / 60000));
   const pref = { kind: timer.kind, day: dayKey(new Date(timer.startedAt)), minutes };
   if (timer.kind === 'work') pref.projectId = timer.ref;
   else pref.bookId = timer.ref;
-  sessionDialog(pref, { mode: 'timer' });
+  sessionDialog(pref, { mode: 'timer', phoneNote });
   render();
 }
 
@@ -426,7 +437,7 @@ async function discardTimer() {
   silenceAlarm();
   const ok = await confirmDialog('Die laufende Session wird nicht gespeichert.', { title: 'Session verwerfen?', okLabel: 'Verwerfen', danger: true });
   if (!ok) return;
-  phoneTimerHint('Stoppe ihn auf dem Sperrbildschirm oder in der Uhr-App, sonst klingelt er noch.');
+  phoneTimerHint();
   saveTimer(null);
   render();
 }
@@ -441,7 +452,7 @@ function currentPageOf(bookId, excludeSession) {
   return page;
 }
 
-function sessionDialog(preset, { mode }) {
+function sessionDialog(preset, { mode, phoneNote = false }) {
   const editing = mode === 'edit' ? store.getState().sessions[preset.id] : null;
   const ctx = context();
   let lastBook = null;
@@ -473,7 +484,10 @@ function sessionDialog(preset, { mode }) {
   };
   openModal({
     title,
-    body: sessionForm(ctx, preset, { mode }),
+    body:
+      (phoneNote
+        ? `<div class="nudge nudge-warn phone-note"><span aria-hidden="true">📱</span><p><strong>Stoppe den iPhone-Timer.</strong> ${PHONE_STOP_TEXT}</p></div>`
+        : '') + sessionForm(ctx, preset, { mode }),
     submitLabel: mode === 'timer' ? 'XP einsammeln' : 'Speichern',
     cancel: mode === 'manual',
     extra:
@@ -835,6 +849,11 @@ const actions = {
   'timer-toggle': toggleTimer,
   'timer-snooze': () => snooze(5),
   'phone-timer-test': () => openPhoneTimer(1),
+  'phone-timer-off': () => {
+    if (!timer?.phone) return;
+    saveTimer(detachPhoneTimer(timer));
+    render();
+  },
   'setup-phone-timer': () => {
     ui.scrollTarget = 'phone-timer-card';
     if (route() === 'einstellungen') scrollToTarget();
@@ -947,7 +966,6 @@ document.addEventListener('change', (e) => {
     }
   } else if (el.dataset.change === 'phone-timer') {
     store.setPrefs({ phoneTimer: el.checked });
-    render();
   } else if (el.dataset.change === 'wake-lock') {
     store.setPrefs({ wakeLock: el.checked });
     updateWakeLock();
@@ -995,15 +1013,17 @@ function scrollToTarget() {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     // Kurz nach dem Start verdeckt → die Kurzbefehle-App ist aufgegangen
-    if (timer?.phone && !timer.phoneOk && Date.now() - phoneLaunchAt < 60000) saveTimer({ ...timer, phoneOk: true });
+    const confirmed = confirmPhoneTimer(timer);
+    if (confirmed) saveTimer(confirmed);
     return;
   }
   if (document.visibilityState !== 'visible') return;
   timer = store.getTimer();
   scheduleExpiry();
-  // Abgelaufener Timer wartet aufs Speichern → direkt zum Wecker-Bildschirm
+  // Abgelaufener Timer wartet aufs Speichern → direkt zum Wecker-Bildschirm. Neu
+  // gezeichnet wird sonst nur bei neuem Tag oder für den Hinweis zum iPhone-Timer.
   if (timer?.expired && route() !== 'fokus' && !$('#modal').open) location.hash = '#/fokus';
-  else if (dayKey() !== renderedDay || timer?.phone) render();
+  else if (dayKey() !== renderedDay || (timer?.phone && route() === 'fokus')) render();
   else updateTimerUI();
   updateWakeLock();
   scheduleSync(300);
@@ -1011,7 +1031,16 @@ document.addEventListener('visibilitychange', () => {
 
 // Wie beim Wecker: jede Berührung oder Taste stellt den Ton ab
 for (const type of ['pointerdown', 'keydown']) {
-  document.addEventListener(type, () => (alarmRinging() || timer?.expired) && silenceAlarm(), true);
+  document.addEventListener(
+    type,
+    () => {
+      if (alarmRinging() || timer?.expired) silenceAlarm();
+      // Wer in der App tippt, ist nicht in die Kurzbefehle-App gewechselt
+      const touched = closePhoneLaunch(timer);
+      if (touched) saveTimer(touched);
+    },
+    true,
+  );
 }
 window.addEventListener('online', () => scheduleSync(300));
 window.addEventListener('offline', () => {

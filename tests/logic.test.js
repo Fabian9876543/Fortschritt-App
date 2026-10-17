@@ -3,16 +3,25 @@ import assert from 'node:assert/strict';
 import {
   addDays,
   computeStats,
+  closePhoneLaunch,
+  confirmPhoneTimer,
   continueTimer,
   dayKey,
+  detachPhoneTimer,
   emptyState,
   expireTimer,
+  launchPhoneTimer,
   levelFromXP,
   levelInfo,
   mergeStates,
+  pauseTimer,
+  PHONE_CONFIRM_MS,
+  phoneTimerActive,
   phoneTimerUrl,
   presetMinutes,
   questsForDay,
+  remainingMinutes,
+  resumeTimer,
   sessionXP,
   snoozeTimer,
   timerElapsed,
@@ -226,7 +235,46 @@ test('iPhone-Timer: Link zum Kurzbefehl mit Minuten als Eingabe', () => {
   assert.equal(phoneTimerUrl(15), 'shortcuts://run-shortcut?name=Fortschritt-Timer&input=text&text=15');
   assert.equal(phoneTimerUrl(5), 'shortcuts://run-shortcut?name=Fortschritt-Timer&input=text&text=5');
   assert.equal(phoneTimerUrl(30, 'Mein Timer ä'), 'shortcuts://run-shortcut?name=Mein%20Timer%20%C3%A4&input=text&text=30');
-  // Nach „Weitermachen“ (ohne Limit) gehört kein iPhone-Timer mehr dazu
-  const done = { kind: 'read', targetMin: 30, startedAt: 0, accMs: 30 * 60000, runStart: null, expired: true, phone: true };
+  // Nach „Weitermachen“ oder „+5 Min“ gehört der alte iPhone-Timer nicht mehr dazu
+  const done = { kind: 'read', targetMin: 30, startedAt: 0, accMs: 30 * 60000, runStart: null, expired: true, phone: true, phoneOk: true };
   assert.equal(continueTimer(done, 1).phone, false);
+  assert.equal(phoneTimerActive(snoozeTimer(done, 5, 1)), false);
+});
+
+test('iPhone-Timer: App-Wecker schweigt nur, wenn die Kurzbefehle-App direkt nach dem Start aufging', () => {
+  const start = 1_000_000;
+  const t = launchPhoneTimer({ kind: 'work', targetMin: 50, startedAt: start, accMs: 0, runStart: start }, start);
+  assert.equal(phoneTimerActive(t), false);
+  // Seite gleich danach verdeckt → Kurzbefehle ist aufgegangen
+  const ok = confirmPhoneTimer(t, start + 2000);
+  assert.equal(phoneTimerActive(ok), true);
+  assert.equal(confirmPhoneTimer(ok, start + 3000), null);
+  // Erst später verdeckt (z. B. gesperrt, nachdem iOS' Rückfrage abgebrochen wurde) → kein Beleg
+  assert.equal(confirmPhoneTimer(t, start + PHONE_CONFIRM_MS + 1), null);
+  // In der App getippt → ein späteres Verdecken zählt nicht mehr
+  const touched = closePhoneLaunch(t);
+  assert.equal(confirmPhoneTimer(touched, start + 3000), null);
+  assert.equal(closePhoneLaunch(touched), null);
+  // Ohne iPhone-Timer nichts zu bestätigen
+  assert.equal(confirmPhoneTimer({ ...t, phone: false }, start + 1000), null);
+  assert.equal(phoneTimerActive(detachPhoneTimer(ok)), false);
+});
+
+test('Pause und Weiter – mit neuem iPhone-Timer auf die volle Minute', () => {
+  const start = 1_000_000;
+  const t = { kind: 'work', targetMin: 50, startedAt: start, accMs: 0, runStart: start, phone: true, phoneOk: true };
+  const paused = pauseTimer(t, start + 12 * 60000 + 37000);
+  assert.equal(paused.runStart, null);
+  assert.equal(paused.accMs, 12 * 60000 + 37000);
+  assert.equal(timerElapsed(paused, start + 99 * 60000), paused.accMs);
+  // 37:23 übrig → der iPhone-Timer bekommt 38 Minuten, der Countdown endet mit ihm
+  const now = start + 20 * 60000;
+  assert.equal(remainingMinutes(paused, now), 38);
+  const resumed = resumeTimer(paused, now, 38);
+  assert.equal(resumed.runStart, now);
+  assert.equal(expireTimer(resumed, now + 38 * 60000 - 1), null);
+  assert.equal(expireTimer(resumed, now + 38 * 60000).lateMs, 0);
+  // Ohne iPhone-Timer bleibt die Zielzeit
+  assert.equal(resumeTimer(paused, now).targetMin, 50);
+  assert.equal(remainingMinutes({ ...paused, accMs: 50 * 60000 - 300 }, now), 1);
 });

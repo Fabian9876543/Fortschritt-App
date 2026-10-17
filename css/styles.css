@@ -694,6 +694,10 @@ body.has-mini-timer main {
   color: var(--text);
 }
 
+.phone-note {
+  margin-bottom: 14px;
+}
+
 #phone-timer-card {
   scroll-margin-top: 84px;
 }

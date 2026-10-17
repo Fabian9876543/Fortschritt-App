@@ -10,7 +10,7 @@ Läuft auf **Laptop und Handy**, lässt sich wie eine normale App installieren, 
 
 ## Was die App kann
 
-- **Fokus-Timer** – Deep Work frei oder mit 25 / 50 / 90 Minuten, Lesen frei oder mit 15 / 30 / 60 Minuten. Bei 00:00 klingelt ein Wecker (Antippen stellt ihn ab), danach: XP einsammeln, +5 Min oder ohne Limit weitermachen. Die Zeit läuft auch weiter, wenn du die App schließt. Auf dem iPhone startet die App auf Wunsch zusätzlich den echten iPhone-Timer – der klingelt auch bei gesperrtem Handy.
+- **Fokus-Timer** – Deep Work frei oder mit 25 / 50 / 90 Minuten, Lesen frei oder mit 15 / 30 / 60 Minuten. Bei 00:00 klingelt ein Wecker (Antippen stellt ihn ab), danach: XP einsammeln, +5 Min oder ohne Limit weitermachen. Die Zeit läuft auch weiter, wenn du die App schließt – klingeln kann der Wecker aber nur bei geöffneter App. Auf dem iPhone stellt sie deshalb auf Wunsch zusätzlich den echten iPhone-Timer, der auch bei gesperrtem Handy klingelt.
 - **Bücher** mit Seitenzahl und Fortschrittsbalken („noch 120 Seiten – ca. 6 Tage bei deinem Ziel“).
 - **Projekte** für deine Deep-Work-Zeit, optional mit Stundenziel.
 - **Tagesziele** (Standard: 60 Min Deep Work, 20 Seiten) als Fortschrittsringe.
@@ -79,16 +79,23 @@ Das Widget liest eine kleine Zusammenfassung (`fortschritt-widget.json`: Level, 
 
 ### 5. Wecker bei gesperrtem iPhone
 
-Ist das iPhone gesperrt, hält es Web-Apps an – die App selbst kann dann nicht klingeln. Darum kann sie beim Start einer Session zusätzlich den **echten Timer der Uhr-App** stellen (über einen Kurzbefehl). Der klingelt immer, auch gesperrt und im Lautlos-Modus.
+Ist das iPhone gesperrt, hält es Web-Apps an – die App selbst kann dann nicht klingeln. Darum kann sie beim Start einer Session zusätzlich den **echten Timer der Uhr-App** stellen (über einen Kurzbefehl). Der klingelt auch bei gesperrtem iPhone und im Lautlos-Modus.
 
 Einmalig einrichten (Anleitung mit Test-Knopf auch in der App unter **Einstellungen → Wecker bei gesperrtem iPhone**):
 
-1. App **Kurzbefehle** öffnen → ＋ → Aktion **„Timer starten“** hinzufügen.
-2. Als Dauer die Variable **„Kurzbefehleingabe“** einsetzen, Einheit **Minuten**.
-3. Den Kurzbefehl genau **`Fortschritt-Timer`** nennen.
-4. In Fortschritt den Test-Knopf drücken (startet einen 1-Minuten-Timer) und „Beim Start einer Session den iPhone-Timer mitstarten“ einschalten.
+1. App **Kurzbefehle** öffnen → **＋** → **Aktion hinzufügen** → „Timer“ suchen → **„Timer starten“** (mit dem Uhr-Symbol) wählen.
+2. In der Aktion auf die Zahl tippen und in der Leiste über der Tastatur die Variable **„Kurzbefehleingabe“** einsetzen. Als Einheit muss **Minuten** dastehen.
+3. Den Kurzbefehl genau **`Fortschritt-Timer`** nennen (großes F und T).
+4. In der **Uhr**-App unter **Timer** einen Ton fürs Timer-Ende wählen – nicht „Wiedergabe stoppen“, sonst bleibt der Timer stumm.
+5. In Fortschritt den Test-Knopf drücken (startet einen 1-Minuten-Timer), das iPhone sperren und abwarten, ob es klingelt. Dann „Beim Start einer Session den iPhone-Timer mitstarten“ einschalten.
 
-Beim Start einer Session springt das iPhone kurz in die Kurzbefehle-App; zurück geht's oben links über „◀ Fortschritt“. Pausierst oder beendest du früher, stoppe den iPhone-Timer selbst (Sperrbildschirm oder Uhr-App).
+Gut zu wissen:
+
+- Beim Start einer Session springt das iPhone kurz in die Kurzbefehle-App (fragt iOS nach, auf „Öffnen“ tippen). Zurück kommst du über den kleinen Pfeil ◀ oben links – dort steht evtl. „Ohne Titel“ – oder über den App-Umschalter.
+- Die App kann den iPhone-Timer nicht steuern: Pausierst du oder hörst früher auf, stoppe ihn selbst (Sperrbildschirm oder Uhr-App). Beim Weitermachen stellt die App einen neuen für die Restzeit.
+- Jeder Start legt einen eigenen Timer an. Übrig gebliebene löschst du in der Uhr-App unter **Timer** (nach links wischen).
+- Klingelt er, beendet ihn „Stopp“ – „Wiederholen“ startet ihn neu.
+- Geht die Kurzbefehle-App nicht auf, klingelt am Ende die App selbst. Dafür muss sie geöffnet bleiben.
 
 ## Datenschutz
 
