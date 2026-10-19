@@ -534,6 +534,7 @@ export function computeStats(state, today = dayKey()) {
     bestPerfectRun: 0,
     questsDone: 0,
     activeDays: 0,
+    noProjectMin: 0, // Deep Work ohne (noch vorhandenes) Projekt
   };
 
   for (const s of sessions) {
@@ -561,7 +562,7 @@ export function computeStats(state, today = dayKey()) {
         if (s.day >= weekStart && s.day <= today) p.weekMinutes += min;
         if (s.day >= last7Start && s.day <= today) p.last7 += min;
         if (!p.lastDay || s.day > p.lastDay) p.lastDay = s.day;
-      }
+      } else totals.noProjectMin += min;
     } else {
       const pages = Math.max(0, Number(s.pages) || 0);
       d.readPages += pages;
@@ -676,6 +677,23 @@ export function computeStats(state, today = dayKey()) {
     return { ...a, current: value, done: value >= a.target, pct: Math.min(1, value / a.target) };
   });
   return stats;
+}
+
+// Diese Woche (Montag bis heute) und die ganze Woche davor
+export function weekTotals(days, today) {
+  const sum = (from, to) => {
+    const out = { workMin: 0, readPages: 0, xp: 0 };
+    for (let k = from; k <= to; k = addDays(k, 1)) {
+      const d = days.get(k);
+      if (!d) continue;
+      out.workMin += d.workMin;
+      out.readPages += d.readPages;
+      out.xp += d.xp;
+    }
+    return out;
+  };
+  const start = startOfWeek(today);
+  return { start, now: sum(start, today), prev: sum(addDays(start, -7), addDays(start, -1)) };
 }
 
 // ---------------------------------------------------------------- Timer

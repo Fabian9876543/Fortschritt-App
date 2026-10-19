@@ -47,6 +47,7 @@ const dfLong = new Intl.DateTimeFormat('de-DE', { weekday: 'long', day: 'numeric
 const dfDate = new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short', year: 'numeric' });
 const dfWd = new Intl.DateTimeFormat('de-DE', { weekday: 'short' });
 const dfMonth = new Intl.DateTimeFormat('de-DE', { month: 'short' });
+const dfDayMonth = new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short' });
 
 export function fmtDay(key, today) {
   if (key === today) return 'Heute';
@@ -57,6 +58,7 @@ export const fmtLongDay = (key) => dfLong.format(parseDay(key));
 export const fmtDate = (key) => dfDate.format(parseDay(key));
 export const fmtWeekday = (key) => dfWd.format(parseDay(key)).replace('.', '');
 export const fmtMonth = (key) => dfMonth.format(parseDay(key)).replace('.', '');
+export const fmtDayMonth = (key) => dfDayMonth.format(parseDay(key));
 
 export function fmtAgo(ts) {
   const s = Math.round((Date.now() - ts) / 1000);

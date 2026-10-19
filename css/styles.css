@@ -1980,9 +1980,15 @@ body.has-mini-timer main {
 .week-compare li {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 2px 12px;
+  align-items: baseline;
+  gap: 0 12px;
   padding: 10px 0;
   border-bottom: 1px solid var(--border);
+}
+
+.week-compare .progress {
+  grid-column: 1 / -1;
+  margin: 6px 0 4px;
 }
 
 .week-compare li:last-child {
@@ -1999,21 +2005,14 @@ body.has-mini-timer main {
   text-align: right;
 }
 
-.delta {
+.wc-prev {
   grid-column: 1 / -1;
   font-size: 13px;
-}
-
-.delta-up {
-  color: var(--good-text);
-}
-
-.delta-down {
-  color: var(--bad-text);
-}
-
-.delta-flat {
   color: var(--muted);
+}
+
+.week-compare .is-done .wc-prev {
+  color: var(--good-text);
 }
 
 .tip {

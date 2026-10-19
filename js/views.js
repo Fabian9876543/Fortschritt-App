@@ -9,14 +9,12 @@ import {
   XP_RULES,
   FREEZE_EVERY,
   FREEZE_MAX,
-  addDays,
-  daysBetween,
   presetMinutes,
   sessionXP,
-  startOfWeek,
+  weekTotals,
 } from './logic.js';
 import { barList, columnChart, heatmap, ring } from './charts.js';
-import { esc, fmtAgo, fmtDate, fmtDay, fmtHours, fmtLongDay, fmtMin, fmtNum } from './ui.js';
+import { esc, fmtAgo, fmtDate, fmtDay, fmtDayMonth, fmtHours, fmtLongDay, fmtMin, fmtNum } from './ui.js';
 
 // ---------------------------------------------------------------- Hilfen
 
@@ -523,38 +521,24 @@ export function viewLibrary(ctx) {
 
 // ---------------------------------------------------------------- Statistik
 
-function weekCompare(stats) {
-  const today = stats.today;
-  const ws = startOfWeek(today);
-  const span = daysBetween(ws, today);
-  const prevStart = addDays(ws, -7);
-  const sum = (from, len) => {
-    const out = { workMin: 0, readPages: 0, xp: 0 };
-    for (let i = 0; i <= len; i++) {
-      const d = stats.days.get(addDays(from, i));
-      if (!d) continue;
-      out.workMin += d.workMin;
-      out.readPages += d.readPages;
-      out.xp += d.xp;
-    }
-    return out;
-  };
-  const now = sum(ws, span);
-  const prev = sum(prevStart, span);
-  const row = (label, a, b, fmt) => {
-    const diff = a - b;
-    const dir = diff > 0 ? 'up' : diff < 0 ? 'down' : 'flat';
-    const icon = dir === 'up' ? '▲' : dir === 'down' ? '▼' : '＝';
-    const text = dir === 'flat' ? 'wie letzte Woche' : `${fmt(Math.abs(diff))} ${dir === 'up' ? 'mehr' : 'weniger'}`;
-    return `<li><span class="wc-label">${label}</span><strong>${fmt(a)}</strong><span class="delta delta-${dir}">${icon} ${text}</span></li>`;
+// Diese Woche bis heute, der Balken misst an der ganzen letzten Woche
+function weekCompare({ now, prev }) {
+  const row = (label, kind, a, b, fmt) => {
+    const done = a > 0 && a >= b;
+    const note = !done ? `letzte Woche: ${fmt(b)}` : a > b ? `🏆 ${fmt(a - b)} mehr als letzte Woche` : '🏆 so viel wie letzte Woche';
+    return `<li class="${done ? 'is-done' : ''}">
+        <span class="wc-label">${label}</span><strong>${fmt(a)}</strong>
+        ${progressBar(b > 0 ? a / b : a > 0 ? 1 : 0, kind, `${label}: diese Woche ${fmt(a)}, letzte Woche ${fmt(b)}`)}
+        <span class="wc-prev">${note}</span>
+      </li>`;
   };
   return `
     <ul class="week-compare">
-      ${row('Deep Work', now.workMin, prev.workMin, fmtMin)}
-      ${row('Seiten', now.readPages, prev.readPages, fmtNum)}
-      ${row('XP', now.xp, prev.xp, fmtNum)}
+      ${row('Deep Work', 'work', now.workMin, prev.workMin, fmtMin)}
+      ${row('Seiten', 'read', now.readPages, prev.readPages, fmtNum)}
+      ${row('XP', 'xp', now.xp, prev.xp, fmtNum)}
     </ul>
-    <p class="hint">Verglichen mit demselben Zeitraum der Vorwoche (Montag bis heute).</p>`;
+    <p class="hint">Der Balken zeigt, wie weit du im Vergleich zur ganzen letzten Woche bist – schaffst du mehr?</p>`;
 }
 
 export function viewStats(ctx) {
@@ -571,8 +555,10 @@ export function viewStats(ctx) {
   const projectItems = Object.values(state.projects)
     .filter((p) => !p.deleted && stats.projects[p.id]?.minutes > 0)
     .map((p) => ({ label: projectLabel(p), value: stats.projects[p.id].minutes }))
+    .concat(T.noProjectMin > 0 ? [{ label: 'Ohne Projekt', value: T.noProjectMin }] : [])
     .sort((a, b) => b.value - a.value)
     .slice(0, 8);
+  const week = weekTotals(stats.days, stats.today);
 
   const all = Object.values(state.sessions)
     .filter((s) => !s.deleted && s.day)
@@ -607,12 +593,12 @@ export function viewStats(ctx) {
       </article>
       <div class="grid grid-2">
         <article class="card">
-          <header class="card-head"><h2>Diese Woche</h2></header>
-          ${weekCompare(stats)}
+          <header class="card-head"><div><h2>Diese Woche</h2><p class="sub">ab Montag, ${esc(fmtDayMonth(week.start))}</p></div></header>
+          ${weekCompare(week)}
         </article>
         <article class="card">
           <header class="card-head"><div><h2>Zeit je Projekt</h2><p class="sub">Deep Work gesamt</p></div></header>
-          ${projectItems.length ? barList(projectItems, { kind: 'work', format: fmtHours }) : '<p class="muted">Noch keine Projekt-Zeit erfasst.</p>'}
+          ${projectItems.length ? barList(projectItems, { kind: 'work', format: fmtHours }) : '<p class="muted">Noch keine Deep-Work-Zeit erfasst.</p>'}
         </article>
       </div>
       <article class="card">

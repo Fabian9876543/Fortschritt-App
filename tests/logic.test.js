@@ -27,6 +27,7 @@ import {
   timerElapsed,
   TIMER_PRESETS,
   walkStreak,
+  weekTotals,
   xpForLevel,
 } from '../js/logic.js';
 
@@ -277,4 +278,32 @@ test('Pause und Weiter – mit neuem iPhone-Timer auf die volle Minute', () => {
   // Ohne iPhone-Timer bleibt die Zielzeit
   assert.equal(resumeTimer(paused, now).targetMin, 50);
   assert.equal(remainingMinutes({ ...paused, accMs: 50 * 60000 - 300 }, now), 1);
+});
+
+test('Wochenvergleich: diese Woche ab Montag, Vorwoche komplett; Deep Work ohne Projekt zählt mit', () => {
+  const MON = '2026-10-19';
+  const st = stateWith(
+    [
+      session('2026-10-16', { kind: 'work', minutes: 90 }), // Fr, ohne Projekt
+      session('2026-10-16', { kind: 'work', minutes: 30, projectId: 'p1' }),
+      session('2026-10-18', { kind: 'work', minutes: 20, projectId: 'gone' }), // Projekt gelöscht
+      session('2026-10-18', { kind: 'read', pages: 40 }), // So
+      session(MON, { kind: 'read', pages: 26 }),
+      session('2026-10-11', { kind: 'read', pages: 99 }), // vorletzte Woche
+    ],
+    { projects: { p1: { id: 'p1', name: 'Bachelorarbeit', updatedAt: 1 }, gone: { id: 'gone', name: 'Alt', deleted: true, updatedAt: 2 } } },
+  );
+  const stats = computeStats(st, MON);
+  const w = weekTotals(stats.days, MON);
+  assert.equal(w.start, MON);
+  assert.deepEqual(w.now, { workMin: 0, readPages: 26, xp: stats.days.get(MON).xp });
+  assert.equal(w.prev.workMin, 140);
+  assert.equal(w.prev.readPages, 40);
+  assert.equal(w.prev.xp, stats.days.get('2026-10-16').xp + stats.days.get('2026-10-18').xp);
+  // Sonntag gehört noch zur Vorwoche, Montag beginnt die neue
+  assert.equal(weekTotals(stats.days, '2026-10-18').start, '2026-10-12');
+  assert.equal(weekTotals(stats.days, '2026-10-18').now.workMin, 140);
+  assert.equal(stats.projects.p1.minutes, 30);
+  assert.equal(stats.totals.noProjectMin, 110);
+  assert.equal(stats.totals.workMin, 140);
 });
