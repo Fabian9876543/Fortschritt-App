@@ -2,7 +2,7 @@
 // liegen unter DATA_KEY und werden synchronisiert; alles unter PREFS_KEY bzw.
 // TIMER_KEY bleibt auf dem jeweiligen Gerät (Timer, Theme, Sync-Zugang …).
 
-import { COLLECTIONS, emptyState, normalizeState, uid } from './logic.js';
+import { COLLECTIONS, changeProfile, emptyState, normalizeState, uid } from './logic.js';
 
 const DATA_KEY = 'fortschritt:data:v1';
 const PREFS_KEY = 'fortschritt:prefs:v1';
@@ -56,12 +56,7 @@ export function replaceState(next, reason = 'replace') {
 }
 
 export function setProfile(patch) {
-  state.profile = {
-    ...state.profile,
-    ...patch,
-    goals: { ...state.profile.goals, ...(patch.goals || {}) },
-    updatedAt: Date.now(),
-  };
+  state.profile = changeProfile(state.profile, patch);
   commit('profile');
 }
 
@@ -86,7 +81,7 @@ export function remove(collection, id) {
 export function resetAll() {
   const now = Date.now();
   const next = emptyState();
-  next.profile.updatedAt = now;
+  Object.assign(next.profile, { updatedAt: now, nameUpdatedAt: now, goalsUpdatedAt: now, remindersUpdatedAt: now });
   for (const key of COLLECTIONS) {
     for (const [id, rec] of Object.entries(state[key])) {
       next[key][id] = { id, deleted: true, createdAt: rec.createdAt || now, updatedAt: now };

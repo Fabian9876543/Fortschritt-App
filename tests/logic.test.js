@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   addDays,
   bookPageAt,
+  changeProfile,
   computeStats,
   closePhoneLaunch,
   confirmPhoneTimer,
@@ -11,6 +12,7 @@ import {
   detachPhoneTimer,
   emptyState,
   expireTimer,
+  goalsOn,
   normalizeState,
   launchPhoneTimer,
   levelFromXP,
@@ -363,10 +365,7 @@ test('„Bis Seite“: absolute Seite, nichts zählt doppelt – auch nach dem S
   const s1 = { id: 's1', kind: 'read', bookId: 'zb', day: '2026-10-18', toPage: 30, pages: 14, createdAt: at('2026-10-18T23:00:00'), updatedAt: 2 };
   // Handy kannte s1 nicht: Mo bis Seite 42 → hat lokal 26 Seiten gerechnet
   const s2 = { id: 's2', kind: 'read', bookId: 'zb', day: '2026-10-19', toPage: 42, pages: 26, createdAt: at('2026-10-19T12:30:00'), updatedAt: 3 };
-  const merged = mergeStates(
-    { ...emptyState(), books: { zb: book }, sessions: { s0, s1 } },
-    { ...emptyState(), books: { zb: book }, sessions: { s0, s2 } },
-  );
+  const merged = mergeStates({ ...emptyState(), books: { zb: book }, sessions: { s0, s1 } }, { ...emptyState(), books: { zb: book }, sessions: { s0, s2 } });
   const st = computeStats(merged, '2026-10-19');
   assert.equal(st.totals.readPages, 42);
   assert.equal(st.days.get('2026-10-19').readPages, 12);
@@ -389,18 +388,58 @@ test('„Bis Seite“: absolute Seite, nichts zählt doppelt – auch nach dem S
 });
 
 test('Bücher: gelöschte behalten Abschluss und XP, fertig eingetragene zählen ohne XP', () => {
-  const st = stateWith(
-    [session('2026-10-16', { kind: 'read', pages: 30, bookId: 'v' })],
-    {
-      books: {
-        v: { id: 'v', title: 'Die Verwandlung', totalPages: 70, startPage: 40, deleted: true, updatedAt: 5 },
-        p: { id: 'p', title: 'Der Prozess', totalPages: 240, startPage: 240, updatedAt: 1 },
-      },
+  const st = stateWith([session('2026-10-16', { kind: 'read', pages: 30, bookId: 'v' })], {
+    books: {
+      v: { id: 'v', title: 'Die Verwandlung', totalPages: 70, startPage: 40, deleted: true, updatedAt: 5 },
+      p: { id: 'p', title: 'Der Prozess', totalPages: 240, startPage: 240, updatedAt: 1 },
     },
-  );
+  });
   const stats = computeStats(st, '2026-10-19');
   assert.equal(stats.days.get('2026-10-16').bonus.books, 100);
   assert.equal(stats.totals.booksFinished, 2);
   assert.equal(stats.books.p.finished, true);
   assert.equal(stats.books.p.finishedDay, null);
+});
+
+test('Zieländerung gilt ab heute: vergangene Tage, Streak und Abzeichen bleiben', () => {
+  const MON = '2026-10-19';
+  const days = Array.from({ length: 9 }, (_, i) => addDays('2026-10-11', i));
+  const base = stateWith(days.map((d) => session(d, { kind: 'read', pages: 22 })));
+  const before = computeStats(base, MON);
+  assert.equal(before.streak.current, 9);
+  const at = new Date('2026-10-19T20:00:00').getTime();
+  const raised = { ...base, profile: changeProfile(base.profile, { name: '', goals: { workMin: 60, readPages: 25 } }, at, MON) };
+  assert.deepEqual(goalsOn(raised.profile, '2026-10-18'), { workMin: 60, readPages: 20 });
+  assert.deepEqual(goalsOn(raised.profile, MON), { workMin: 60, readPages: 25 });
+  const after = computeStats(raised, MON);
+  assert.equal(after.goals.readPages, 25);
+  assert.equal(after.days.get('2026-10-18').xp, before.days.get('2026-10-18').xp);
+  // Heute (22 < 25) ist noch offen; die 8 Tage davor zählen weiter (vorher wäre alles weg gewesen)
+  assert.equal(after.streak.current, 8);
+  assert.equal(after.streak.best, 8);
+  assert.equal(after.todayAgg.readGoal, false);
+  // Nur der Name geändert: kein neuer Zielverlauf, eigener Zeitstempel
+  const named = changeProfile(base.profile, { name: 'Fabian', goals: { workMin: 60, readPages: 20 } }, at, MON);
+  assert.equal(named.goalLog, undefined);
+  assert.equal(named.nameUpdatedAt, at);
+  assert.equal(named.goalsUpdatedAt, 0);
+});
+
+test('Profil-Abgleich Feld für Feld: Erinnerung auf dem Handy überschreibt nicht das Ziel vom Laptop', () => {
+  const p0 = emptyState().profile;
+  const laptop = changeProfile(p0, { goals: { workMin: 30, readPages: 10 } }, 1000, '2026-10-10');
+  const reminders = p0.reminders.map((r) => (r.type === 'read' ? { ...r, time: '21:15' } : r));
+  const phone = changeProfile(p0, { reminders }, 2000, '2026-10-12'); // kannte das neue Ziel noch nicht
+  const merged = mergeStates({ ...emptyState(), profile: laptop }, { ...emptyState(), profile: phone }).profile;
+  assert.deepEqual(merged.goals, { workMin: 30, readPages: 10 });
+  assert.equal(merged.reminders.find((r) => r.type === 'read').time, '21:15');
+  assert.equal(merged.goalLog.length, 2);
+  assert.deepEqual(mergeStates({ ...emptyState(), profile: phone }, { ...emptyState(), profile: laptop }).profile, merged);
+  // Übersteht das Speichern (normalizeState) und ältere Profile ohne eigene Zeitstempel
+  assert.deepEqual(normalizeState({ profile: merged }).profile.goalLog, merged.goalLog);
+  const old = { ...p0, name: 'Alt', goals: { workMin: 45, readPages: 15 }, updatedAt: 5000 };
+  const m2 = mergeStates({ ...emptyState(), profile: merged }, { ...emptyState(), profile: old }).profile;
+  assert.equal(m2.name, 'Alt');
+  assert.deepEqual(m2.goals, { workMin: 45, readPages: 15 });
+  assert.equal(m2.goalLog.length, 2);
 });

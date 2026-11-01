@@ -137,6 +137,19 @@ export function normalizeState(raw) {
       readPages: clampInt(g.readPages, 0, 5000, DEFAULT_GOALS.readPages),
     };
     if (Array.isArray(p.reminders)) s.profile.reminders = normalizeReminders(p.reminders);
+    for (const k of PROFILE_STAMPS) if (p[k] !== undefined && Number.isFinite(Number(p[k]))) s.profile[k] = Math.max(0, Number(p[k]));
+    if (Array.isArray(p.goalLog)) {
+      const log = new Map();
+      for (const e of p.goalLog) {
+        if (!e || !isValidDay(e.from)) continue;
+        log.set(e.from, {
+          from: e.from,
+          workMin: clampInt(e.workMin, 0, 1440, DEFAULT_GOALS.workMin),
+          readPages: clampInt(e.readPages, 0, 5000, DEFAULT_GOALS.readPages),
+        });
+      }
+      if (log.size) s.profile.goalLog = [...log.values()].sort(byFrom);
+    }
   }
   for (const key of COLLECTIONS) {
     const src = raw[key];
@@ -171,6 +184,72 @@ export function canonical(value) {
   return JSON.stringify(value);
 }
 
+// ---------------------------------------------------------------- Profil
+
+// Name, Ziele und Erinnerungen haben je einen eigenen Zeitstempel, damit eine Änderung
+// an einem Feld beim Abgleich nicht die anderen überschreibt.
+const PROFILE_FIELDS = [
+  ['name', 'nameUpdatedAt'],
+  ['goals', 'goalsUpdatedAt'],
+  ['reminders', 'remindersUpdatedAt'],
+];
+const PROFILE_STAMPS = PROFILE_FIELDS.map(([, stamp]) => stamp);
+const byFrom = (a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0);
+const GOALS_SINCE = '1970-01-01';
+
+// Tagesziele mit Verlauf: Eine Änderung gilt ab dem Tag, an dem sie gemacht wurde.
+// Vergangene Tage behalten ihre damaligen Ziele – ein höheres Ziel löscht keinen Streak.
+export function goalsOn(profile, day) {
+  const log = profile.goalLog || [];
+  if (!log.length) return profile.goals;
+  let hit = log[0];
+  for (const e of log) if (e.from <= day) hit = e;
+  return hit === log[log.length - 1] ? profile.goals : { workMin: hit.workMin, readPages: hit.readPages };
+}
+
+// Profil ändern: nur geänderte Felder bekommen einen neuen Zeitstempel,
+// neue Ziele landen im Zielverlauf ab heute.
+export function changeProfile(profile, patch, now = Date.now(), today = dayKey(new Date(now))) {
+  const next = { ...profile, updatedAt: now };
+  // Felder ohne eigenen Zeitstempel (älterer Stand) gelten als zuletzt bei updatedAt geändert
+  for (const stamp of PROFILE_STAMPS) if (next[stamp] === undefined) next[stamp] = Number(profile.updatedAt) || 0;
+  if (patch.name !== undefined && patch.name !== profile.name) Object.assign(next, { name: patch.name, nameUpdatedAt: now });
+  if (patch.reminders !== undefined && canonical(patch.reminders) !== canonical(profile.reminders)) {
+    Object.assign(next, { reminders: patch.reminders, remindersUpdatedAt: now });
+  }
+  const goals = { ...profile.goals, ...(patch.goals || {}) };
+  if (goals.workMin !== profile.goals.workMin || goals.readPages !== profile.goals.readPages) {
+    const log = (profile.goalLog?.length ? profile.goalLog : [{ from: GOALS_SINCE, ...profile.goals }]).filter((e) => e.from !== today);
+    log.push({ from: today, workMin: goals.workMin, readPages: goals.readPages });
+    Object.assign(next, { goals, goalLog: log.sort(byFrom), goalsUpdatedAt: now });
+  }
+  return next;
+}
+
+// Abgleich zweier Profile Feld für Feld (ohne eigenen Zeitstempel zählt updatedAt).
+// Den Zielverlauf führen wir zusammen; am selben Tag gewinnt die Seite mit den neueren Zielen.
+function mergeProfile(a, b) {
+  const out = { ...newer(a, b), updatedAt: Math.max(Number(a.updatedAt) || 0, Number(b.updatedAt) || 0) };
+  const winner = (field, stamp) => {
+    const ta = Number(a[stamp] ?? a.updatedAt) || 0;
+    const tb = Number(b[stamp] ?? b.updatedAt) || 0;
+    if (ta !== tb) return ta > tb ? a : b;
+    return canonical(a[field]) >= canonical(b[field]) ? a : b;
+  };
+  for (const [field, stamp] of PROFILE_FIELDS) {
+    const w = winner(field, stamp);
+    out[field] = w[field];
+    out[stamp] = Number(w[stamp] ?? w.updatedAt) || 0;
+  }
+  const goalsSide = winner('goals', 'goalsUpdatedAt');
+  const log = new Map();
+  for (const e of (goalsSide === a ? b : a).goalLog || []) log.set(e.from, e);
+  for (const e of goalsSide.goalLog || []) log.set(e.from, e);
+  if (log.size) out.goalLog = [...log.values()].sort(byFrom);
+  else delete out.goalLog;
+  return out;
+}
+
 function newer(a, b) {
   const ta = Number(a?.updatedAt) || 0;
   const tb = Number(b?.updatedAt) || 0;
@@ -185,7 +264,7 @@ export function mergeStates(a, b) {
   const A = normalizeState(a);
   const B = normalizeState(b);
   const out = emptyState();
-  out.profile = newer(A.profile, B.profile);
+  out.profile = mergeProfile(A.profile, B.profile);
   for (const key of COLLECTIONS) {
     const merged = { ...A[key] };
     for (const [id, rec] of Object.entries(B[key])) {
@@ -521,9 +600,7 @@ export function bookPageAt(state, bookId, day, at = Infinity, excludeId = null) 
 }
 
 export function computeStats(state, today = dayKey()) {
-  const goals = state.profile.goals;
-  const hasWork = goals.workMin > 0;
-  const hasRead = goals.readPages > 0;
+  const goals = goalsOn(state.profile, today);
   const sessions = liveSessions(state);
   const days = new Map();
   const getDay = (k) => {
@@ -620,15 +697,19 @@ export function computeStats(state, today = dayKey()) {
   for (const b of Object.values(books)) if (!b.deleted && !b.finishedDay && b.total > 0 && b.read >= b.total) totals.booksFinished++;
 
   for (const d of days.values()) {
-    d.workGoal = hasWork && d.workMin >= goals.workMin;
-    d.readGoal = hasRead && d.readPages >= goals.readPages;
+    // Jeder Tag zählt mit den Zielen, die an diesem Tag galten
+    const g = goalsOn(state.profile, d.key);
+    const hasWork = g.workMin > 0;
+    const hasRead = g.readPages > 0;
+    d.workGoal = hasWork && d.workMin >= g.workMin;
+    d.readGoal = hasRead && d.readPages >= g.readPages;
     const enabled = (hasWork ? 1 : 0) + (hasRead ? 1 : 0);
     const met = (d.workGoal ? 1 : 0) + (d.readGoal ? 1 : 0);
     d.active = enabled === 0 ? d.sessions.length > 0 : met > 0;
     d.perfect = enabled > 0 && met === enabled;
     d.bonus.goals = met * XP_RULES.goalBonus;
     d.bonus.perfect = enabled === 2 && d.perfect ? XP_RULES.perfectBonus : 0;
-    d.quests = evalQuests(d.key, d, goals);
+    d.quests = evalQuests(d.key, d, g);
     d.bonus.quests = d.quests.reduce((sum, q) => sum + (q.done ? q.xp : 0), 0);
     totals.questsDone += d.quests.filter((q) => q.done).length;
     totals.maxDayWork = Math.max(totals.maxDayWork, d.workMin);
