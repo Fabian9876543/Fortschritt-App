@@ -91,11 +91,15 @@ export function resetAll() {
   commit('reset');
 }
 
-// Andere Tabs desselben Browsers: Änderungen übernehmen
+// Andere Tabs desselben Browsers: Änderungen übernehmen – auch die Geräte-Einstellungen,
+// sonst schreibt ein alter Tab z. B. eine inzwischen verbundene Sync-Einstellung wieder weg
 window.addEventListener('storage', (e) => {
   if (e.key === DATA_KEY) {
     state = normalizeState(readJSON(DATA_KEY, emptyState()));
     emit('external');
+  } else if (e.key === PREFS_KEY) {
+    prefs = { ...prefDefaults, ...readJSON(PREFS_KEY, {}) };
+    emit('prefs');
   }
 });
 
@@ -119,8 +123,9 @@ export function getPrefs() {
   return prefs;
 }
 
+// Frisch lesen, dann ändern: Was ein anderer Tab inzwischen gespeichert hat, bleibt erhalten
 export function setPrefs(patch) {
-  prefs = { ...prefs, ...patch };
+  prefs = { ...prefDefaults, ...readJSON(PREFS_KEY, {}), ...patch };
   writeJSON(PREFS_KEY, prefs);
 }
 

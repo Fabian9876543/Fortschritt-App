@@ -31,7 +31,7 @@ import {
   trainingId,
   widgetSummary,
 } from './logic.js';
-import { WIDGET_FILE, syncWithGist, widgetDataUrl } from './sync.js';
+import { WIDGET_FILE, pushOnClose, syncWithGist, widgetDataUrl } from './sync.js';
 import { bookForm, projectForm, sessionForm, syncCard, trainingToggles, views, widgetCard } from './views.js';
 import {
   $,
@@ -54,7 +54,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.4.1';
+const VERSION = '1.4.2';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
@@ -112,15 +112,17 @@ function renderChrome(ctx = context()) {
   const sync = ctx.prefs.sync;
   const syncEl = $('#sync-indicator');
   syncEl.hidden = !sync?.token;
-  syncEl.dataset.status = ui.syncStatus;
-  syncEl.title =
-    ui.syncStatus === 'error'
-      ? `Sync-Fehler: ${ui.syncError}`
-      : ui.syncStatus === 'syncing'
-        ? 'Synchronisiere …'
-        : ui.syncStatus === 'offline'
-          ? 'Offline'
-          : 'Synchronisiert';
+  // Grün erst nach einem erfolgreichen Sync – und nur, solange nichts Neues zu hochladen ist
+  const status = ui.syncStatus === 'ok' && syncPending() ? 'pending' : ui.syncStatus;
+  syncEl.dataset.status = status;
+  syncEl.title = {
+    error: `Sync-Fehler: ${ui.syncError}`,
+    syncing: 'Synchronisiere …',
+    offline: 'Offline',
+    pending: 'Änderungen werden gleich hochgeladen …',
+    idle: 'Noch nicht synchronisiert',
+    ok: 'Synchronisiert',
+  }[status];
   $('#mini-timer').hidden = !timer || ctx.route === 'fokus';
   document.body.classList.toggle('has-mini-timer', !!timer && ctx.route !== 'fokus');
 }
@@ -798,14 +800,28 @@ function copyWidgetScript() {
 let syncTimeout = 0;
 let syncing = false;
 let syncAgain = false;
+let changeSeq = 0; // lokale Änderungen, die hochgeladen werden müssen
+let syncedSeq = 0; // … davon schon im Gist
+let discovered = false; // einmal pro Start nach weiteren Daten-Gists suchen
+let lastSyncAt = 0;
+const PULL_EVERY = 2 * 60000; // solange die App sichtbar ist, regelmäßig abgleichen
 
-function scheduleSync(delay = 2500) {
+const syncPending = () => changeSeq !== syncedSeq;
+
+function scheduleSync(delay = 1200) {
   if (!store.getPrefs().sync?.token) return;
   clearTimeout(syncTimeout);
   syncTimeout = setTimeout(() => runSync(), delay);
 }
 
-async function runSync({ manual = false } = {}) {
+// App wird verdeckt oder geschlossen: Offenes sofort hochladen (keepalive überlebt das Schließen)
+function flushSync() {
+  if (!syncPending() || !store.getPrefs().sync?.token) return;
+  clearTimeout(syncTimeout);
+  runSync({ keepalive: true });
+}
+
+async function runSync({ manual = false, keepalive = false } = {}) {
   const cfg = store.getPrefs().sync;
   if (!cfg?.token) return false;
   if (syncing) {
@@ -822,13 +838,22 @@ async function runSync({ manual = false } = {}) {
   ui.syncStatus = 'syncing';
   renderChrome();
   let ok = false;
+  const seq = changeSeq;
   try {
-    const { state, gistId, owner } = await syncWithGist(cfg, store.getState, {
+    const { state, gistId, owner, created } = await syncWithGist(cfg, store.getState, {
       extraFiles: (merged) => ({ [WIDGET_FILE]: JSON.stringify(widgetSummary(merged, computeStats(merged, dayKey()), APP_URL)) }),
+      discover: !discovered,
+      keepalive,
     });
     // Was während des Uploads lokal dazukam, bleibt erhalten
     const merged = mergeStates(store.getState(), state);
-    store.setPrefs({ sync: { ...store.getPrefs().sync, gistId, owner: owner || store.getPrefs().sync.owner || null, lastSync: Date.now() } });
+    // Nur speichern, wenn nicht inzwischen getrennt oder neu verbunden wurde
+    const current = store.getPrefs().sync;
+    if (current?.token === cfg.token) store.setPrefs({ sync: { ...current, gistId, owner: owner || current.owner || null, lastSync: Date.now() } });
+    // Neu angelegt? Kurz danach noch einmal suchen – hat ein zweites Gerät gleichzeitig eins angelegt, finden beide zusammen
+    discovered = !created;
+    if (created) setTimeout(() => scheduleSync(0), 5000);
+    syncedSeq = seq;
     ui.syncStatus = 'ok';
     ui.syncError = '';
     if (canonical(merged) !== canonical(normalizeState(store.getState()))) store.replaceState(merged, 'sync');
@@ -840,27 +865,33 @@ async function runSync({ manual = false } = {}) {
     if (manual) toast({ icon: '⚠️', title: 'Sync fehlgeschlagen', text: ui.syncError, kind: 'error', timeout: 6000 });
   } finally {
     syncing = false;
+    lastSyncAt = Date.now();
     // Nur die Sync-Karte aktualisieren, damit Eingaben in anderen Feldern bleiben
     const card = $('#sync-card');
     if (card) card.outerHTML = syncCard(context());
     const wcard = $('#widget-card');
     if (wcard) wcard.outerHTML = widgetCard(context());
     renderChrome();
-    if (syncAgain) {
-      syncAgain = false;
-      scheduleSync(300);
-    }
+    // Was während des Syncs dazukam, gleich hinterher – nach Fehlern nicht im Kreis
+    if (ok && (syncAgain || syncPending())) scheduleSync(300);
+    syncAgain = false;
   }
   return ok;
 }
 
 async function connectSync(form) {
+  if (syncing) return; // zweites Tippen auf „Verbinden“, während der erste Versuch läuft
   const token = form.elements.token.value.trim();
   const gistId = form.elements.gistId.value.trim().replace(/^.*\//, '');
   if (!token) return toast({ icon: '🔑', title: 'Bitte Token einfügen', kind: 'error' });
-  store.setPrefs({ sync: { token, gistId: gistId || null, lastSync: 0 } });
+  const button = form.querySelector('button[type="submit"]');
+  if (button) button.disabled = true;
+  // Eine selbst eingetragene Gist-ID bleibt fest, sonst wird nach allen Daten-Gists gesucht
+  store.setPrefs({ sync: { token, gistId: gistId || null, pinned: !!gistId, lastSync: 0 } });
+  discovered = false;
   const ok = await runSync({ manual: true });
-  if (!ok) {
+  if (button) button.disabled = false;
+  if (!ok && store.getPrefs().sync?.token === token) {
     store.setPrefs({ sync: null });
     ui.syncStatus = 'idle';
     render();
@@ -1052,9 +1083,17 @@ document.addEventListener('submit', (e) => {
 });
 
 store.subscribe((reason) => {
+  if (reason === 'prefs') {
+    // Ein anderer Tab hat Geräte-Einstellungen geändert (z. B. Sync verbunden)
+    applyTheme();
+    render();
+    return;
+  }
+  const local = reason !== 'sync' && reason !== 'external';
+  if (local) changeSeq++;
   render();
   if (reason === 'sync' || reason === 'external' || reason === 'import') checkSeen();
-  if (reason !== 'sync' && reason !== 'external') scheduleSync();
+  if (local) scheduleSync();
 });
 
 window.addEventListener('hashchange', () => {
@@ -1076,9 +1115,11 @@ document.addEventListener('visibilitychange', () => {
     // Kurz nach dem Start verdeckt → die Kurzbefehle-App ist aufgegangen
     const confirmed = confirmPhoneTimer(timer);
     if (confirmed) saveTimer(confirmed);
+    flushSync();
     return;
   }
   if (document.visibilityState !== 'visible') return;
+  discovered = false; // beim Öffnen auch nach weiteren Daten-Gists schauen
   timer = store.getTimer();
   scheduleExpiry();
   // Abgelaufener Timer wartet aufs Speichern → direkt zum Wecker-Bildschirm. Neu
@@ -1104,6 +1145,11 @@ for (const type of ['pointerdown', 'keydown']) {
   );
 }
 window.addEventListener('online', () => scheduleSync(300));
+window.addEventListener('pagehide', () => {
+  const cfg = store.getPrefs().sync;
+  if (syncPending() && cfg?.token && pushOnClose(cfg, store.getState())) syncedSeq = changeSeq;
+});
+window.addEventListener('focus', () => scheduleSync(300));
 window.addEventListener('offline', () => {
   if (store.getPrefs().sync?.token) {
     ui.syncStatus = 'offline';
@@ -1130,6 +1176,8 @@ setInterval(() => {
   if (dayKey() !== renderedDay) render();
   else if (timer) updateTimerUI();
   checkLocalReminders();
+  // Solange die App sichtbar ist, regelmäßig abgleichen – sonst käme Neues vom anderen Gerät erst beim nächsten Öffnen
+  if (document.visibilityState === 'visible' && !syncing && Date.now() - lastSyncAt > PULL_EVERY) scheduleSync(0);
 }, 1000);
 
 // ---------------------------------------------------------------- Start
