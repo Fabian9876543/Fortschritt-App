@@ -27,6 +27,7 @@
 
   --good: #0ca30c;
   --good-text: #006300;
+  --good-soft: rgba(12, 163, 12, 0.12);
   --bad-text: #b42318;
   --danger: #d03b3b;
 
@@ -67,6 +68,7 @@
     --xp-2: #f6c445;
     --xp-soft: rgba(233, 168, 28, 0.16);
     --good-text: #3fbf3f;
+    --good-soft: rgba(63, 191, 63, 0.15);
     --bad-text: #ff8a80;
     --heat-0: #262624;
     --heat-1: #0d366b;
@@ -101,6 +103,7 @@
   --xp-2: #f6c445;
   --xp-soft: rgba(233, 168, 28, 0.16);
   --good-text: #3fbf3f;
+  --good-soft: rgba(63, 191, 63, 0.15);
   --bad-text: #ff8a80;
   --heat-0: #262624;
   --heat-1: #0d366b;
@@ -696,6 +699,155 @@ body.has-mini-timer main {
 
 .phone-note {
   margin-bottom: 14px;
+}
+
+/* ------------------------------------------------------------------ Training */
+
+.train-toggles {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+@media (min-width: 720px) {
+  .training-page .train-toggles {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+.train-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 58px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.15s,
+    border-color 0.15s;
+}
+
+.train-btn.is-on {
+  border-color: var(--good);
+  background: var(--good-soft);
+}
+
+.train-icon {
+  font-size: 22px;
+  line-height: 1;
+}
+
+.train-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.train-text strong {
+  font-size: 14px;
+  line-height: 1.25;
+}
+
+.train-text span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.train-btn.is-on .train-text span {
+  color: var(--good-text);
+}
+
+.train-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.train-list li {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.train-count {
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.train-cal {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.tc-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 4px;
+}
+
+.tc-head span {
+  font-size: 11px;
+  color: var(--muted);
+  text-align: center;
+}
+
+.tc-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  min-height: 56px;
+  padding: 4px 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+.tc-cell.has-training {
+  border-color: transparent;
+  background: var(--good-soft);
+}
+
+.tc-cell.is-today {
+  box-shadow: 0 0 0 1.5px var(--text);
+}
+
+.tc-cell.is-future {
+  visibility: hidden;
+}
+
+.tc-date {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.tc-icons {
+  display: grid;
+  grid-template-columns: repeat(2, 1.2em);
+  grid-auto-rows: 1.25em;
+  font-size: 13px;
+  line-height: 1.25;
+  text-align: center;
+}
+
+.training-page .card > .btn-sm {
+  margin-top: 8px;
 }
 
 #phone-timer-card {

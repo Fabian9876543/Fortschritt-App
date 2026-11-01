@@ -10,6 +10,7 @@ import {
   detachPhoneTimer,
   emptyState,
   expireTimer,
+  normalizeState,
   launchPhoneTimer,
   levelFromXP,
   levelInfo,
@@ -26,6 +27,8 @@ import {
   snoozeTimer,
   timerElapsed,
   TIMER_PRESETS,
+  trainingId,
+  trainingStats,
   walkStreak,
   weekTotals,
   xpForLevel,
@@ -306,4 +309,46 @@ test('Wochenvergleich: diese Woche ab Montag, Vorwoche komplett; Deep Work ohne 
   assert.equal(stats.projects.p1.minutes, 30);
   assert.equal(stats.totals.noProjectMin, 110);
   assert.equal(stats.totals.workMin, 140);
+});
+
+test('Training: ein Eintrag je Tag und Art, zählt nicht für XP, wird synchronisiert', () => {
+  const SUN = '2026-11-01';
+  const rec = (day, type, extra = {}) => ({ id: trainingId(day, type), day, type, createdAt: 1, updatedAt: 1, ...extra });
+  const trainings = Object.fromEntries(
+    [
+      rec('2026-10-26', 'upper'), // Mo dieser Woche
+      rec('2026-10-28', 'run'),
+      rec('2026-10-28', 'core'),
+      rec('2026-10-30', 'upper', { deleted: true }), // wieder abgehakt
+      rec('2026-10-22', 'lower'), // Vorwoche
+      rec('2026-11-02', 'run'), // Zukunft (falsche Uhr) – zählt nicht
+      { id: 'x', day: '2026-10-27', type: 'yoga', createdAt: 1, updatedAt: 1 }, // unbekannte Art
+    ].map((t) => [t.id, t]),
+  );
+  const st = normalizeState({ ...emptyState(), trainings });
+  assert.equal(Object.keys(st.trainings).length, 7);
+  const ts = trainingStats(st, SUN);
+  assert.deepEqual([...ts.byDay.keys()].sort(), ['2026-10-22', '2026-10-26', '2026-10-28']);
+  assert.deepEqual(ts.types.upper, { last: '2026-10-26', week: 1, total: 1 });
+  assert.deepEqual(ts.types.lower, { last: '2026-10-22', week: 0, total: 1 });
+  assert.deepEqual(ts.types.run, { last: '2026-10-28', week: 1, total: 1 });
+  assert.equal(ts.weekDays, 2);
+  // Kein Einfluss auf XP und Streak
+  const stats = computeStats(st, SUN);
+  assert.equal(stats.totalXP, 0);
+  assert.equal(stats.streak.current, 0);
+  assert.equal(stats.training.types.core.week, 1);
+  // Zwei Geräte haken denselben Tag ab: gleiche ID, neuere Änderung gewinnt
+  const phone = { ...emptyState(), trainings: { [trainingId(SUN, 'run')]: rec(SUN, 'run', { updatedAt: 5 }) } };
+  const laptop = {
+    ...emptyState(),
+    trainings: {
+      [trainingId(SUN, 'run')]: rec(SUN, 'run', { deleted: true, updatedAt: 9 }),
+      [trainingId(SUN, 'upper')]: rec(SUN, 'upper', { updatedAt: 3 }),
+    },
+  };
+  const merged = mergeStates(phone, laptop);
+  assert.equal(merged.trainings[trainingId(SUN, 'run')].deleted, true);
+  assert.equal(merged.trainings[trainingId(SUN, 'upper')].type, 'upper');
+  assert.deepEqual([...trainingStats(merged, SUN).byDay.get(SUN)], ['upper']);
 });

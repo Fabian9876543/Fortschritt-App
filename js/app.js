@@ -27,10 +27,11 @@ import {
   sessionXP,
   snoozeTimer,
   timerElapsed,
+  trainingId,
   widgetSummary,
 } from './logic.js';
 import { WIDGET_FILE, syncWithGist, widgetDataUrl } from './sync.js';
-import { bookForm, projectForm, sessionForm, syncCard, views, widgetCard } from './views.js';
+import { bookForm, projectForm, sessionForm, syncCard, trainingToggles, views, widgetCard } from './views.js';
 import {
   $,
   $$,
@@ -41,6 +42,7 @@ import {
   confirmDialog,
   esc,
   fmtClock,
+  fmtLongDay,
   fmtMin,
   fmtNum,
   initTooltips,
@@ -51,11 +53,11 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.3.2';
+const VERSION = '1.4.0';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
-const ui = { libraryTab: 'books', historyLimit: 30, syncStatus: 'idle', syncError: '', scrollTarget: null };
+const ui = { libraryTab: 'books', historyLimit: 30, trainingWeeks: 6, syncStatus: 'idle', syncError: '', scrollTarget: null };
 let stats = null;
 let timer = store.getTimer();
 let renderedDay = dayKey();
@@ -440,6 +442,35 @@ async function discardTimer() {
   phoneTimerHint();
   saveTimer(null);
   render();
+}
+
+// ---------------------------------------------------------------- Training
+
+// An- und Abhaken: ein Eintrag je Tag und Art (siehe trainingId)
+function toggleTraining(day, type) {
+  if (!isValidDay(day) || day > dayKey()) return;
+  const id = trainingId(day, type);
+  const prev = store.getState().trainings[id];
+  store.upsert('trainings', { id, day, type, deleted: !!prev && !prev.deleted });
+}
+
+// Training an einem anderen Tag nachtragen oder korrigieren
+function trainingDayDialog(day) {
+  if (!isValidDay(day) || day > dayKey()) return;
+  const body = () => trainingToggles(stats.training, day, stats.today, { modal: true });
+  openModal({
+    title: fmtLongDay(day),
+    body: body(),
+    submitLabel: 'Fertig',
+    cancel: false,
+    onAction: (action, form, btn) => {
+      if (action !== 'training-toggle') return;
+      const type = btn.dataset.type;
+      toggleTraining(day, type);
+      form.querySelector('.modal-body').innerHTML = body();
+      form.querySelector(`[data-type="${type}"]`)?.focus();
+    },
+  });
 }
 
 // ---------------------------------------------------------------- Dialoge
@@ -879,6 +910,12 @@ const actions = {
   },
   'more-history': () => {
     ui.historyLimit += 50;
+    render();
+  },
+  'training-toggle': (el) => toggleTraining(el.dataset.day, el.dataset.type),
+  'training-day': (el) => trainingDayDialog(el.dataset.day),
+  'training-more': () => {
+    ui.trainingWeeks += 6;
     render();
   },
   'set-theme': (el) => {

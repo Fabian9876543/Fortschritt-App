@@ -104,6 +104,9 @@ export function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
 }
 
+// Datensammlungen, die pro Eintrag synchronisiert werden
+export const COLLECTIONS = ['books', 'projects', 'sessions', 'trainings'];
+
 export function emptyState() {
   return {
     schema: 1,
@@ -111,6 +114,7 @@ export function emptyState() {
     books: {},
     projects: {},
     sessions: {},
+    trainings: {},
   };
 }
 
@@ -134,7 +138,7 @@ export function normalizeState(raw) {
     };
     if (Array.isArray(p.reminders)) s.profile.reminders = normalizeReminders(p.reminders);
   }
-  for (const key of ['books', 'projects', 'sessions']) {
+  for (const key of COLLECTIONS) {
     const src = raw[key];
     if (!src || typeof src !== 'object') continue;
     for (const [id, rec] of Object.entries(src)) {
@@ -182,7 +186,7 @@ export function mergeStates(a, b) {
   const B = normalizeState(b);
   const out = emptyState();
   out.profile = newer(A.profile, B.profile);
-  for (const key of ['books', 'projects', 'sessions']) {
+  for (const key of COLLECTIONS) {
     const merged = { ...A[key] };
     for (const [id, rec] of Object.entries(B[key])) {
       merged[id] = merged[id] ? newer(merged[id], rec) : rec;
@@ -676,7 +680,44 @@ export function computeStats(state, today = dayKey()) {
     const value = a.value(stats);
     return { ...a, current: value, done: value >= a.target, pct: Math.min(1, value / a.target) };
   });
+  stats.training = trainingStats(state, today);
   return stats;
+}
+
+// ---------------------------------------------------------------- Training
+
+// Nur zum Überblick: Training zählt nicht für XP, Tagesziele oder Streak.
+export const TRAINING_TYPES = [
+  { id: 'upper', icon: '💪', label: 'Oberkörper' },
+  { id: 'lower', icon: '🦵', label: 'Unterkörper' },
+  { id: 'core', icon: '🧘', label: 'Bauch + unterer Rücken', short: 'Bauch + Rücken' },
+  { id: 'run', icon: '🏃', label: 'Laufen' },
+];
+
+// Ein Eintrag je Tag und Art. Die feste ID sorgt dafür, dass Handy und Laptop
+// denselben Eintrag treffen – An- und Abhaken synchronisiert sich so sauber.
+export const trainingId = (day, type) => `${day}:${type}`;
+
+export function trainingStats(state, today) {
+  const byDay = new Map();
+  for (const t of Object.values(state.trainings || {})) {
+    if (t.deleted || !isValidDay(t.day) || t.day > today || !TRAINING_TYPES.some((x) => x.id === t.type)) continue;
+    if (!byDay.has(t.day)) byDay.set(t.day, new Set());
+    byDay.get(t.day).add(t.type);
+  }
+  const weekStart = startOfWeek(today);
+  const types = Object.fromEntries(TRAINING_TYPES.map((x) => [x.id, { last: null, week: 0, total: 0 }]));
+  let weekDays = 0;
+  for (const [day, done] of byDay) {
+    if (day >= weekStart) weekDays++;
+    for (const type of done) {
+      const s = types[type];
+      s.total++;
+      if (day >= weekStart) s.week++;
+      if (!s.last || day > s.last) s.last = day;
+    }
+  }
+  return { byDay, types, weekDays };
 }
 
 // Diese Woche (Montag bis heute) und die ganze Woche davor

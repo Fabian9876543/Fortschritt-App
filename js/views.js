@@ -6,15 +6,19 @@ import {
   PHONE_TIMER_SHORTCUT,
   REMINDER_TYPES,
   TIMER_PRESETS,
+  TRAINING_TYPES,
   XP_RULES,
   FREEZE_EVERY,
   FREEZE_MAX,
+  addDays,
+  daysBetween,
   presetMinutes,
   sessionXP,
+  startOfWeek,
   weekTotals,
 } from './logic.js';
 import { barList, columnChart, heatmap, ring } from './charts.js';
-import { esc, fmtAgo, fmtDate, fmtDay, fmtDayMonth, fmtHours, fmtLongDay, fmtMin, fmtNum } from './ui.js';
+import { esc, fmtAgo, fmtDate, fmtDay, fmtDayMonth, fmtHours, fmtLongDay, fmtMin, fmtMonth, fmtNum } from './ui.js';
 
 // ---------------------------------------------------------------- Hilfen
 
@@ -279,6 +283,7 @@ export function viewToday(ctx) {
             <button class="btn btn-ghost" data-action="log-session">＋ Nachtragen</button>
           </div>
         </article>
+        ${trainingCard(stats)}
         <article class="card">
           <header class="card-head"><h2>Tages-Quests</h2><span class="muted">${questsDone}/${t.quests.length}</span></header>
           ${questList(t.quests)}
@@ -292,6 +297,91 @@ export function viewToday(ctx) {
               ? `<ul class="session-list">${todaySessions.map((s) => sessionRow(s, state, { editable: true })).join('')}</ul>`
               : emptyState('🌱', 'Noch nichts geloggt', 'Starte mit 25 Minuten – der Anfang ist das Schwerste.')
           }
+        </article>
+      </div>
+    </section>`;
+}
+
+// ---------------------------------------------------------------- Training
+
+function fmtSince(day, today) {
+  const n = daysBetween(day, today);
+  return n === 0 ? 'heute' : n === 1 ? 'gestern' : `vor ${n} Tagen`;
+}
+
+// Vier Knöpfe zum An- und Abhaken. Im Dialog laufen Klicks über data-modal-action.
+export function trainingToggles(ts, day, today, { modal = false } = {}) {
+  const done = ts.byDay.get(day) || new Set();
+  const attr = modal ? 'data-modal-action' : 'data-action';
+  return `<div class="train-toggles">${TRAINING_TYPES.map((t) => {
+    const on = done.has(t.id);
+    const last = ts.types[t.id].last;
+    const sub = day !== today ? (on ? 'eingetragen ✓' : 'nicht eingetragen') : on ? 'heute ✓' : last ? `zuletzt ${fmtSince(last, today)}` : 'noch nie';
+    return `
+      <button type="button" ${modal ? '' : `id="train-${t.id}" `}class="train-btn${on ? ' is-on' : ''}" aria-pressed="${on}" ${attr}="training-toggle" data-day="${day}" data-type="${t.id}">
+        <span class="train-icon" aria-hidden="true">${t.icon}</span>
+        <span class="train-text"><strong>${esc(t.short || t.label)}</strong><span>${sub}</span></span>
+      </button>`;
+  }).join('')}</div>`;
+}
+
+function trainingCard(stats) {
+  return `
+    <article class="card training-card">
+      <header class="card-head"><h2>Training heute</h2><a href="#/training" class="link">Übersicht</a></header>
+      ${trainingToggles(stats.training, stats.today, stats.today)}
+    </article>`;
+}
+
+export function viewTraining(ctx) {
+  const { stats, ui } = ctx;
+  const ts = stats.training;
+  const today = stats.today;
+  const overview = TRAINING_TYPES.map((t) => {
+    const s = ts.types[t.id];
+    return `
+      <li>
+        <span class="train-icon" aria-hidden="true">${t.icon}</span>
+        <span class="train-text"><strong>${esc(t.label)}</strong><span>${s.last ? `zuletzt ${fmtSince(s.last, today)}` : 'noch nicht eingetragen'}</span></span>
+        <span class="train-count">${s.week}× diese Woche</span>
+      </li>`;
+  }).join('');
+  // Kalender: neueste Woche oben, ein Tag antippen zum Nachtragen
+  const weeks = [];
+  for (let w = 0; w < ui.trainingWeeks; w++) {
+    const monday = addDays(startOfWeek(today), -7 * w);
+    const cells = WEEKDAYS.map((_, i) => {
+      const key = addDays(monday, i);
+      if (key > today) return '<span class="tc-cell is-future"></span>';
+      const done = ts.byDay.get(key);
+      const dayNum = Number(key.slice(8));
+      const date = dayNum === 1 || (w === 0 && i === 0) ? `${dayNum}. ${fmtMonth(key)}` : dayNum;
+      const names = TRAINING_TYPES.filter((t) => done?.has(t.id)).map((t) => t.label);
+      const icons = TRAINING_TYPES.map((t) => `<span>${done?.has(t.id) ? t.icon : ''}</span>`).join('');
+      return `<button type="button" class="tc-cell${done ? ' has-training' : ''}${key === today ? ' is-today' : ''}" data-action="training-day" data-day="${key}" aria-label="${esc(`${fmtLongDay(key)}: ${names.length ? names.join(', ') : 'kein Training'}`)}"><span class="tc-date">${date}</span><span class="tc-icons" aria-hidden="true">${icons}</span></button>`;
+    });
+    weeks.push(`<div class="tc-week">${cells.join('')}</div>`);
+  }
+  return `
+    <section class="page training-page">
+      <header class="page-head"><h1>Training</h1><p class="sub">Nur für deinen Überblick – zählt nicht für XP oder Streak.</p></header>
+      <article class="card training-card">
+        <header class="card-head"><h2>Heute</h2></header>
+        ${trainingToggles(ts, today, today)}
+      </article>
+      <div class="grid grid-2">
+        <article class="card">
+          <header class="card-head"><h2>Überblick</h2><span class="muted">${ts.weekDays} ${ts.weekDays === 1 ? 'Trainingstag' : 'Trainingstage'} diese Woche</span></header>
+          <ul class="train-list">${overview}</ul>
+        </article>
+        <article class="card">
+          <header class="card-head"><h2>Kalender</h2></header>
+          <div class="train-cal">
+            <div class="tc-week tc-head" aria-hidden="true">${WEEKDAYS.map((d) => `<span>${d}</span>`).join('')}</div>
+            ${weeks.join('')}
+          </div>
+          <p class="hint">Tippe auf einen Tag, um etwas nachzutragen oder zu korrigieren.</p>
+          <button class="btn btn-ghost btn-sm" data-action="training-more">Frühere Wochen</button>
         </article>
       </div>
     </section>`;
@@ -944,4 +1034,5 @@ export const views = {
   erfolge: viewAchievements,
   einstellungen: viewSettings,
   erinnerungen: viewReminders,
+  training: viewTraining,
 };
