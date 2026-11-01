@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   addDays,
+  bookPageAt,
   computeStats,
   closePhoneLaunch,
   confirmPhoneTimer,
@@ -21,6 +22,7 @@ import {
   phoneTimerUrl,
   presetMinutes,
   questsForDay,
+  readPages,
   remainingMinutes,
   resumeTimer,
   sessionXP,
@@ -351,4 +353,54 @@ test('Training: ein Eintrag je Tag und Art, zählt nicht für XP, wird synchroni
   assert.equal(merged.trainings[trainingId(SUN, 'run')].deleted, true);
   assert.equal(merged.trainings[trainingId(SUN, 'upper')].type, 'upper');
   assert.deepEqual([...trainingStats(merged, SUN).byDay.get(SUN)], ['upper']);
+});
+
+test('„Bis Seite“: absolute Seite, nichts zählt doppelt – auch nach dem Sync zweier Geräte', () => {
+  const book = { id: 'zb', title: 'Der Zauberberg', totalPages: 320, startPage: 0, updatedAt: 1 };
+  const at = (iso) => new Date(iso).getTime();
+  const s0 = { id: 's0', kind: 'read', bookId: 'zb', day: '2026-10-18', toPage: 16, pages: 16, createdAt: at('2026-10-18T10:00:00'), updatedAt: 1 };
+  // Laptop (noch nicht hochgeladen): So 23:00 bis Seite 30
+  const s1 = { id: 's1', kind: 'read', bookId: 'zb', day: '2026-10-18', toPage: 30, pages: 14, createdAt: at('2026-10-18T23:00:00'), updatedAt: 2 };
+  // Handy kannte s1 nicht: Mo bis Seite 42 → hat lokal 26 Seiten gerechnet
+  const s2 = { id: 's2', kind: 'read', bookId: 'zb', day: '2026-10-19', toPage: 42, pages: 26, createdAt: at('2026-10-19T12:30:00'), updatedAt: 3 };
+  const merged = mergeStates(
+    { ...emptyState(), books: { zb: book }, sessions: { s0, s1 } },
+    { ...emptyState(), books: { zb: book }, sessions: { s0, s2 } },
+  );
+  const st = computeStats(merged, '2026-10-19');
+  assert.equal(st.totals.readPages, 42);
+  assert.equal(st.days.get('2026-10-19').readPages, 12);
+  assert.equal(st.pagesBySession.s2, 12);
+  assert.equal(st.books.zb.currentPage, 42);
+  // Stand vor einer Stelle im Verlauf: beim Bearbeiten von s1 zählt nur s0
+  assert.equal(bookPageAt(merged, 'zb', '2026-10-18', s1.createdAt, 's1'), 16);
+  assert.equal(bookPageAt(merged, 'zb', '2026-10-19'), 42);
+  // Nachtragen für Samstag: Stand am Ende von Samstag = Startseite
+  assert.equal(bookPageAt(merged, 'zb', '2026-10-17'), 0);
+  const back = { id: 'sb', kind: 'read', bookId: 'zb', day: '2026-10-17', toPage: 10, pages: 10, createdAt: at('2026-11-01T09:00:00'), updatedAt: 4 };
+  const st2 = computeStats({ ...merged, sessions: { ...merged.sessions, sb: back } }, '2026-10-19');
+  assert.equal(st2.pagesBySession.sb, 10);
+  assert.equal(st2.pagesBySession.s0, 6);
+  assert.equal(st2.totals.readPages, 42);
+  // Ohne toPage zählt die eingetragene Seitenzahl wie bisher
+  assert.equal(readPages({ pages: 7 }, 100), 7);
+  assert.equal(readPages({ pages: 7, toPage: 90 }, 100), 0);
+  assert.equal(readPages({ pages: 7, toPage: 120 }, null), 7);
+});
+
+test('Bücher: gelöschte behalten Abschluss und XP, fertig eingetragene zählen ohne XP', () => {
+  const st = stateWith(
+    [session('2026-10-16', { kind: 'read', pages: 30, bookId: 'v' })],
+    {
+      books: {
+        v: { id: 'v', title: 'Die Verwandlung', totalPages: 70, startPage: 40, deleted: true, updatedAt: 5 },
+        p: { id: 'p', title: 'Der Prozess', totalPages: 240, startPage: 240, updatedAt: 1 },
+      },
+    },
+  );
+  const stats = computeStats(st, '2026-10-19');
+  assert.equal(stats.days.get('2026-10-16').bonus.books, 100);
+  assert.equal(stats.totals.booksFinished, 2);
+  assert.equal(stats.books.p.finished, true);
+  assert.equal(stats.books.p.finishedDay, null);
 });

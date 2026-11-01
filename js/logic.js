@@ -498,6 +498,28 @@ export function liveSessions(state) {
     .sort(sessionOrder);
 }
 
+// Gelesene Seiten einer Session. Bei „Bis Seite“ (toPage) zählt der Zuwachs gegenüber
+// dem Stand davor – so zählt nichts doppelt, wenn Handy und Laptop dieselben Seiten melden.
+export function readPages(s, before) {
+  const to = Number(s.toPage);
+  if (s.toPage !== null && s.toPage !== undefined && s.toPage !== '' && Number.isFinite(to) && before !== null) return Math.max(0, Math.round(to) - before);
+  return Math.max(0, Number(s.pages) || 0);
+}
+
+// Seitenstand eines Buchs vor einer Stelle im Verlauf (Tag, dann Startzeit) – gleiche
+// Reihenfolge und Rechnung wie computeStats. Ohne Zeitpunkt: am Ende dieses Tages.
+export function bookPageAt(state, bookId, day, at = Infinity, excludeId = null) {
+  const book = state.books[bookId];
+  if (!book) return null;
+  let page = Math.max(0, Number(book.startPage) || 0);
+  for (const s of liveSessions(state)) {
+    if (s.day > day || (s.day === day && (s.startedAt || s.createdAt || 0) >= at)) break;
+    if (s.kind === 'work' || s.bookId !== bookId || s.id === excludeId) continue;
+    page += readPages(s, page);
+  }
+  return page;
+}
+
 export function computeStats(state, today = dayKey()) {
   const goals = state.profile.goals;
   const hasWork = goals.workMin > 0;
@@ -510,11 +532,11 @@ export function computeStats(state, today = dayKey()) {
     return d;
   };
 
+  // Auch gelöschte Bücher: Ihre Seiten, der Abschluss und die XP bleiben erhalten
   const books = {};
   for (const b of Object.values(state.books)) {
-    if (b.deleted) continue;
     const start = Math.max(0, Number(b.startPage) || 0);
-    books[b.id] = { read: start, total: Math.max(0, Number(b.totalPages) || 0), finishedDay: null, minutes: 0, lastDay: null };
+    books[b.id] = { read: start, total: Math.max(0, Number(b.totalPages) || 0), finishedDay: null, minutes: 0, lastDay: null, deleted: !!b.deleted };
   }
   const projects = {};
   for (const p of Object.values(state.projects)) {
@@ -541,7 +563,11 @@ export function computeStats(state, today = dayKey()) {
     noProjectMin: 0, // Deep Work ohne (noch vorhandenes) Projekt
   };
 
-  for (const s of sessions) {
+  const pagesBySession = {};
+  for (const raw of sessions) {
+    // Lese-Sessions mit den tatsächlich gezählten Seiten (siehe readPages)
+    const s = raw.kind === 'work' ? raw : { ...raw, pages: readPages(raw, books[raw.bookId] ? books[raw.bookId].read : null) };
+    if (s !== raw) pagesBySession[s.id] = s.pages;
     const d = getDay(s.day);
     const min = Math.max(0, Number(s.minutes) || 0);
     d.sessions.push(s);
@@ -568,7 +594,7 @@ export function computeStats(state, today = dayKey()) {
         if (!p.lastDay || s.day > p.lastDay) p.lastDay = s.day;
       } else totals.noProjectMin += min;
     } else {
-      const pages = Math.max(0, Number(s.pages) || 0);
+      const pages = s.pages;
       d.readPages += pages;
       d.readMin += min;
       d.maxRead = Math.max(d.maxRead, min);
@@ -589,6 +615,9 @@ export function computeStats(state, today = dayKey()) {
       }
     }
   }
+
+  // Schon fertig eingetragene Bücher (Startseite = letzte Seite) zählen als beendet, ohne XP
+  for (const b of Object.values(books)) if (!b.deleted && !b.finishedDay && b.total > 0 && b.read >= b.total) totals.booksFinished++;
 
   for (const d of days.values()) {
     d.workGoal = hasWork && d.workMin >= goals.workMin;
@@ -675,6 +704,7 @@ export function computeStats(state, today = dayKey()) {
     totals,
     books: bookStats,
     projects,
+    pagesBySession,
   };
   stats.achievements = ACHIEVEMENTS.map((a) => {
     const value = a.value(stats);

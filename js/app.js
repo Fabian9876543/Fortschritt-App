@@ -3,6 +3,7 @@
 import * as store from './store.js';
 import {
   XP_RULES,
+  bookPageAt,
   canonical,
   closePhoneLaunch,
   computeStats,
@@ -53,7 +54,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.4.0';
+const VERSION = '1.4.1';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
@@ -298,7 +299,7 @@ function checkExpiry() {
   return true;
 }
 
-function startTimer(kind, ref, minutes) {
+function startTimer(kind, ref, minutes, { navigate = true } = {}) {
   if (timer) {
     toast({ icon: '⏱️', title: 'Es läuft bereits eine Session', text: 'Beende sie zuerst.' });
     location.hash = '#/fokus';
@@ -309,14 +310,27 @@ function startTimer(kind, ref, minutes) {
   const phone = minutes > 0 && phoneTimerOn();
   const next = { kind, ref: ref || '', targetMin: minutes || 0, startedAt: now, accMs: 0, runStart: now, phone: false, phoneOk: false };
   saveTimer(phone ? launchPhoneTimer(next, now) : next);
-  if (route() === 'fokus') render();
+  if (route() === 'fokus' || !navigate) render();
   else location.hash = '#/fokus';
   if (phone) openPhoneTimer(minutes);
+}
+
+// Weiter an einem späteren Tag: Die bisherige Zeit gehört zum Starttag. Darum erst
+// speichern und dann für heute neu starten – sonst landet alles am Starttag.
+const startedEarlier = () => !!timer && dayKey(new Date(timer.startedAt)) < dayKey();
+
+function continueNextDay(minutes) {
+  const { kind, ref } = timer;
+  // Nicht wegnavigieren: Ein Level-Up-Dialog nach dem Speichern bliebe sonst nicht offen
+  stopTimer({ newDay: true, then: () => startTimer(kind, ref, minutes, { navigate: false }) });
 }
 
 function toggleTimer() {
   if (!timer || checkExpiry()) return;
   const now = Date.now();
+  if (!timer.runStart && startedEarlier()) {
+    return continueNextDay(timer.expired || !(timer.targetMin > 0) ? 0 : remainingMinutes(timer, now));
+  }
   if (timer.expired) saveTimer(continueTimer(timer, now));
   else if (timer.runStart) {
     phoneTimerHint(
@@ -336,6 +350,7 @@ function toggleTimer() {
 function snooze(minutes) {
   if (!timer?.expired) return;
   silenceAlarm();
+  if (startedEarlier()) return continueNextDay(minutes);
   unlockAudio();
   const now = Date.now();
   const phone = minutes > 0 && phoneTimerOn();
@@ -418,7 +433,7 @@ async function updateWakeLock() {
   }
 }
 
-function stopTimer() {
+function stopTimer({ newDay = false, then = null } = {}) {
   if (!timer) return;
   silenceAlarm();
   const now = Date.now();
@@ -430,7 +445,7 @@ function stopTimer() {
   const pref = { kind: timer.kind, day: dayKey(new Date(timer.startedAt)), minutes };
   if (timer.kind === 'work') pref.projectId = timer.ref;
   else pref.bookId = timer.ref;
-  sessionDialog(pref, { mode: 'timer', phoneNote });
+  sessionDialog(pref, { mode: 'timer', phoneNote, newDay, then });
   render();
 }
 
@@ -475,56 +490,60 @@ function trainingDayDialog(day) {
 
 // ---------------------------------------------------------------- Dialoge
 
-function currentPageOf(bookId, excludeSession) {
-  const bs = stats.books[bookId];
-  if (!bs) return null;
-  let page = bs.currentPage;
-  if (excludeSession && excludeSession.bookId === bookId && !excludeSession.deleted) page -= Number(excludeSession.pages) || 0;
-  return page;
-}
-
-function sessionDialog(preset, { mode, phoneNote = false }) {
+function sessionDialog(preset, { mode, phoneNote = false, newDay = false, then = null }) {
   const editing = mode === 'edit' ? store.getState().sessions[preset.id] : null;
   const ctx = context();
-  let lastBook = null;
   const title = mode === 'timer' ? 'Session speichern' : mode === 'edit' ? 'Session bearbeiten' : 'Session nachtragen';
+  // Stelle der Session im Verlauf: bearbeitet = ihre eigene, Timer = Startzeit, sonst Ende des Tages
+  const at = editing ? editing.startedAt || editing.createdAt || 0 : mode === 'timer' ? timer?.startedAt || Infinity : Infinity;
+  // Was zuletzt getippt wurde, gilt: „Bis Seite“ wird als Seite gespeichert, sonst die Seitenzahl
+  let source = editing?.toPage != null && editing.toPage !== '' ? 'toPage' : 'pages';
   const sync = (form, e) => {
     const kind = form.elements.kind.value || 'work';
     form.querySelector('.form-session').dataset.kind = kind;
     const bookId = form.elements.bookId.value;
-    const base = bookId ? currentPageOf(bookId, editing) : null;
+    const day = form.elements.day.value;
+    const base = bookId && isValidDay(day) ? bookPageAt(store.getState(), bookId, day, at, editing?.id) : null;
     const book = bookId ? store.getState().books[bookId] : null;
     const toPage = form.elements.toPage;
     const pages = form.elements.pages;
+    if (e?.target === toPage) source = 'toPage';
+    else if (e?.target === pages) source = 'pages';
     toPage.closest('.field').hidden = base === null;
     if (base !== null) {
-      if (e?.target === toPage) {
-        pages.value = toPage.value === '' ? '' : Math.max(0, Number(toPage.value) - base);
-      } else if (e?.target === pages || bookId !== lastBook) {
-        toPage.value = pages.value === '' ? '' : base + Number(pages.value);
-      }
+      if (!e && source === 'toPage') toPage.value = editing.toPage;
+      if (source === 'toPage') pages.value = toPage.value === '' ? '' : Math.max(0, Number(toPage.value) - base);
+      else toPage.value = pages.value === '' ? '' : base + Number(pages.value);
       toPage.placeholder = String(base);
       form.querySelector('[data-out="page-hint"]').textContent =
         `Du warst auf Seite ${fmtNum(base)}${book?.totalPages ? ` von ${fmtNum(book.totalPages)}` : ''}.`;
     } else {
       form.querySelector('[data-out="page-hint"]').textContent = '';
     }
-    lastBook = bookId;
     const xp = sessionXP({ kind, minutes: Number(form.elements.minutes.value) || 0, pages: Number(pages.value) || 0 });
     form.querySelector('[data-out="xp"]').textContent = `+${fmtNum(xp)} XP`;
   };
+  // Timer-Session von einem früheren Tag: sie zählt für den Starttag – das sagen wir dazu
+  const startDay = mode === 'timer' && preset.day !== dayKey() ? esc(fmtLongDay(preset.day)) : '';
+  const notes = [
+    phoneNote
+      ? `<div class="nudge nudge-warn phone-note"><span aria-hidden="true">📱</span><p><strong>Stoppe den iPhone-Timer.</strong> ${PHONE_STOP_TEXT}</p></div>`
+      : '',
+    newDay
+      ? `<div class="nudge phone-note"><span aria-hidden="true">📅</span><p><strong>Neuer Tag.</strong> Speichere zuerst die Zeit vom ${startDay}. Danach läuft eine neue Session für heute weiter.</p></div>`
+      : startDay
+        ? `<div class="nudge phone-note"><span aria-hidden="true">📅</span><p>Gestartet am ${startDay} – die Session zählt für diesen Tag.</p></div>`
+        : '',
+  ];
   openModal({
     title,
-    body:
-      (phoneNote
-        ? `<div class="nudge nudge-warn phone-note"><span aria-hidden="true">📱</span><p><strong>Stoppe den iPhone-Timer.</strong> ${PHONE_STOP_TEXT}</p></div>`
-        : '') + sessionForm(ctx, preset, { mode }),
-    submitLabel: mode === 'timer' ? 'XP einsammeln' : 'Speichern',
+    body: notes.join('') + sessionForm(ctx, preset, { mode }),
+    submitLabel: newDay ? 'Speichern & weiter' : mode === 'timer' ? 'XP einsammeln' : 'Speichern',
     cancel: mode === 'manual',
     extra:
       mode === 'edit'
         ? '<button type="button" class="btn btn-danger-ghost" data-modal-action="delete">Löschen</button>'
-        : mode === 'timer'
+        : mode === 'timer' && !newDay
           ? '<button type="button" class="btn btn-ghost" data-modal-action="resume">Weiter machen</button>'
           : '',
     onInput: sync,
@@ -558,6 +577,10 @@ function sessionDialog(preset, { mode, phoneNote = false }) {
         day,
         minutes,
         pages: kind === 'read' ? pages : 0,
+        toPage:
+          kind === 'read' && source === 'toPage' && !f.toPage.closest('.field').hidden && f.toPage.value !== ''
+            ? Math.max(0, Math.round(Number(f.toPage.value)))
+            : null,
         projectId: kind === 'work' ? f.projectId.value : '',
         bookId: kind === 'read' ? f.bookId.value : '',
         note: f.note.value.trim(),
@@ -565,6 +588,7 @@ function sessionDialog(preset, { mode, phoneNote = false }) {
       };
       if (mode === 'timer') saveTimer(null);
       withCelebration(() => store.upsert('sessions', record));
+      then?.();
       return true;
     },
   });
@@ -891,7 +915,7 @@ const actions = {
     else location.hash = '#/einstellungen';
   },
   'timer-continue': () => snooze(0),
-  'timer-stop': stopTimer,
+  'timer-stop': () => stopTimer(),
   'timer-discard': discardTimer,
   'mini-open': () => (location.hash = '#/fokus'),
   'log-session': () => sessionDialog({ kind: store.getPrefs().focus.kind, day: dayKey() }, { mode: 'manual' }),

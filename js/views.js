@@ -652,6 +652,7 @@ export function viewStats(ctx) {
 
   const all = Object.values(state.sessions)
     .filter((s) => !s.deleted && s.day)
+    .map((s) => (s.id in stats.pagesBySession ? { ...s, pages: stats.pagesBySession[s.id] } : s))
     .sort((a, b) => (a.day !== b.day ? (a.day < b.day ? 1 : -1) : (b.startedAt || b.createdAt || 0) - (a.startedAt || a.createdAt || 0)));
   const shown = all.slice(0, ui.historyLimit);
   let lastDay = '';
