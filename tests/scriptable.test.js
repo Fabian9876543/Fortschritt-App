@@ -57,11 +57,15 @@ function makeEnv({ data, family = null, runsInWidget = !!family, now, pending = 
   const texts = [];
   const log = { widget: null, alerts: [], scheduled: [], removed: [], presented: [] };
   const store = new Map(pending.map((p) => [p.identifier, p]));
+  // Aufbau des Widgets zum Nachprüfen (Stacks mit ihren Elementen)
+  const nodes = new WeakMap();
 
   const container = (kind) => {
     const obj = { size: { width: 0, height: 0 } };
+    const node = { kind, obj, items: [] };
     obj.addText = (t) => {
       texts.push(t);
+      node.items.push({ kind: 'text', text: t });
       return strict({ text: t, centerAlignText() {}, leftAlignText() {}, rightAlignText() {} }, 'WidgetText');
     };
     obj.addImage = (image) =>
@@ -69,9 +73,16 @@ function makeEnv({ data, family = null, runsInWidget = !!family, now, pending = 
         { image, centerAlignImage() {}, leftAlignImage() {}, rightAlignImage() {}, applyFittingContentMode() {}, applyFillingContentMode() {} },
         'WidgetImage',
       );
-    obj.addSpacer = (length) => strict({ length }, 'WidgetSpacer');
+    obj.addSpacer = (length) => {
+      node.items.push({ kind: 'spacer', length });
+      return strict({ length }, 'WidgetSpacer');
+    };
     obj.addDate = () => strict({}, 'WidgetText');
-    obj.addStack = () => container('WidgetStack');
+    obj.addStack = () => {
+      const child = container('WidgetStack');
+      node.items.push(nodes.get(child));
+      return child;
+    };
     for (const m of [
       'setPadding',
       'useDefaultPadding',
@@ -93,7 +104,9 @@ function makeEnv({ data, family = null, runsInWidget = !!family, now, pending = 
     ]) {
       obj[m] = async () => log.presented.push(m);
     }
-    return strict(obj, kind);
+    const proxy = strict(obj, kind);
+    nodes.set(proxy, node);
+    return proxy;
   };
 
   class ListWidget {
@@ -253,7 +266,7 @@ function makeEnv({ data, family = null, runsInWidget = !!family, now, pending = 
       complete() {},
     },
   });
-  return { context, log, texts, store };
+  return { context, log, texts, store, nodes };
 }
 
 async function run(opts, url = 'https://example.test/fortschritt-widget.json') {
@@ -375,4 +388,30 @@ test('Ohne Daten-Link zeigt das Skript einen Hinweis statt abzustürzen', async 
 test('In der Scriptable-App: Bestätigung mit Anzahl geplanter Erinnerungen', async () => {
   const env = await run({ data: summary(), family: null, runsInWidget: false, now: AT_18 });
   assert.match(env.log.alerts[0].message, /16 Erinnerungen/);
+});
+
+test('Widget: Balken gehen genau auf – bei erreichtem Ziel ganz gefüllt', async () => {
+  for (const family of ['small', 'medium', 'large']) {
+    const env = await run({ data: summary({ readToday: 30, workToday: 81 }), family, now: AT_18 });
+    const tracks = [];
+    const walk = (node) => {
+      for (const item of node.items) {
+        if (!item.items) continue;
+        if (item.obj.backgroundColor?.light?.hex === '#e6e4de') tracks.push(item);
+        walk(item);
+      }
+    };
+    walk(env.nodes.get(env.log.widget));
+    assert.ok(tracks.length >= 2, `${family}: Balken gefunden`);
+    for (const t of tracks) {
+      // Kein flexibler Abstandhalter (der hat in iOS eine Mindestbreite) …
+      assert.ok(!t.items.some((i) => i.kind === 'spacer' && (i.length === undefined || i.length === null)), `${family}: flexibler Abstand im Balken`);
+      // … und Füllung + Rest ergeben genau die Breite des Balkens
+      const sum = t.items.reduce((a, i) => a + (i.kind === 'spacer' ? i.length : i.obj.size.width), 0);
+      assert.equal(sum, t.obj.size.width, `${family}: Breiten gehen nicht auf`);
+    }
+    // Deep Work 81/60 und Lesen 30/20: beide Balken komplett gefüllt
+    const full = tracks.filter((t) => t.items.length === 1 && t.items[0].obj?.size.width === t.obj.size.width);
+    assert.ok(full.length >= 2, `${family}: erreichte Ziele nicht voll`);
+  }
 });

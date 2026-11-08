@@ -185,20 +185,25 @@ function addLabel(stack, str, font, color, lines = 1) {
   return t;
 }
 
+// Füllung und Rest haben feste Breiten, die genau aufgehen. Ein flexibler Abstandhalter
+// hat in iOS eine Mindestbreite – dann blieb rechts eine Lücke, obwohl das Ziel erreicht war.
 function addBar(stack, pct, color, width, height = 6) {
   const track = stack.addStack();
   track.size = new Size(width, height);
   track.cornerRadius = height / 2;
   track.backgroundColor = COLORS.track;
   track.layoutHorizontally();
-  const fillWidth = Math.round(width * Math.max(0, Math.min(1, pct)));
+  track.spacing = 0;
+  const p = Math.max(0, Math.min(1, pct));
+  // Mindestens so breit wie hoch, damit auch wenig Fortschritt als runder Punkt sichtbar ist
+  const fillWidth = p > 0 ? Math.min(width, Math.max(height, Math.round(width * p))) : 0;
   if (fillWidth > 0) {
     const fill = track.addStack();
-    fill.size = new Size(Math.max(height, fillWidth), height);
+    fill.size = new Size(fillWidth, height);
     fill.cornerRadius = height / 2;
     fill.backgroundColor = color;
   }
-  track.addSpacer();
+  if (fillWidth < width) track.addSpacer(width - fillWidth);
 }
 
 function goalRow(stack, label, value, goal, unit, color, width) {

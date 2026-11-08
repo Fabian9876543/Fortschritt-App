@@ -54,7 +54,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.4.2';
+const VERSION = '1.4.3';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
