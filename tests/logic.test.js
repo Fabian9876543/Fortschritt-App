@@ -26,6 +26,7 @@ import {
   questsForDay,
   readPages,
   remainingMinutes,
+  restoreFromBackup,
   resumeTimer,
   sessionXP,
   snoozeTimer,
@@ -442,4 +443,21 @@ test('Profil-Abgleich Feld für Feld: Erinnerung auf dem Handy überschreibt nic
   assert.equal(m2.name, 'Alt');
   assert.deepEqual(m2.goals, { workMin: 45, readPages: 15 });
   assert.equal(m2.goalLog.length, 2);
+});
+
+test('Backup nach „Alle Daten löschen“: Einträge kommen zurück, gezielt Gelöschtes nicht', () => {
+  const backup = stateWith([session('2026-10-20', { kind: 'work', minutes: 30 }), session('2026-10-21', { kind: 'read', pages: 10 })]);
+  backup.trainings['2026-10-20:run'] = { id: '2026-10-20:run', day: '2026-10-20', type: 'run', createdAt: 1, updatedAt: 1 };
+  const [a, b] = Object.keys(backup.sessions);
+  // Lokal: alles zurückgesetzt (Löschmarken mit reset), eine Session davor gezielt gelöscht
+  const local = emptyState();
+  local.sessions[a] = { id: a, deleted: true, reset: true, createdAt: 1, updatedAt: 900 };
+  local.sessions[b] = { id: b, deleted: true, createdAt: 1, updatedAt: 900 };
+  local.trainings['2026-10-20:run'] = { id: '2026-10-20:run', deleted: true, reset: true, createdAt: 1, updatedAt: 900 };
+  const merged = mergeStates(local, restoreFromBackup(local, backup, 1000));
+  assert.equal(merged.sessions[a].deleted, undefined);
+  assert.equal(merged.sessions[a].updatedAt, 1000);
+  assert.equal(merged.sessions[b].deleted, true);
+  assert.equal(merged.trainings['2026-10-20:run'].type, 'run');
+  assert.equal(computeStats(merged, '2026-10-21').totals.workMin, 30);
 });

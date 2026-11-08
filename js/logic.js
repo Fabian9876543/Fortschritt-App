@@ -275,6 +275,20 @@ export function mergeStates(a, b) {
   return out;
 }
 
+// Nach „Alle Daten löschen“ soll ein Backup die Einträge zurückbringen: Löschmarken des
+// Zurücksetzens (reset: true) verlieren gegen lebende Einträge aus dem Backup.
+export function restoreFromBackup(local, backup, now = Date.now()) {
+  const out = { ...backup };
+  for (const key of COLLECTIONS) {
+    out[key] = { ...backup[key] };
+    for (const [id, rec] of Object.entries(backup[key])) {
+      const cur = local[key][id];
+      if (!rec.deleted && cur?.deleted && cur.reset) out[key][id] = { ...rec, updatedAt: now };
+    }
+  }
+  return out;
+}
+
 // ---------------------------------------------------------------- XP & Level
 
 export function sessionXP(s) {

@@ -24,6 +24,7 @@ import {
   remainingMinutes,
   reminderContext,
   reminderMessage,
+  restoreFromBackup,
   resumeTimer,
   sessionXP,
   snoozeTimer,
@@ -37,6 +38,7 @@ import {
   $,
   $$,
   alarmRinging,
+  armTapGuard,
   chime,
   closeModal,
   confetti,
@@ -47,6 +49,7 @@ import {
   fmtMin,
   fmtNum,
   initTooltips,
+  isEchoTap,
   openModal,
   startAlarm,
   stopAlarm,
@@ -54,7 +57,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.4.3';
+const VERSION = '1.4.4';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
@@ -95,6 +98,7 @@ function render() {
   if (active && document.getElementById(active) && !$('#modal').open) document.getElementById(active).focus();
   renderChrome(ctx);
   updateTimerUI();
+  refreshTrainingDialog?.();
   if (ctx.route === 'erinnerungen') loadWidgetScript().catch(() => {});
 }
 
@@ -463,31 +467,43 @@ async function discardTimer() {
 
 // ---------------------------------------------------------------- Training
 
-// An- und Abhaken: ein Eintrag je Tag und Art (siehe trainingId)
-function toggleTraining(day, type) {
+// Ein- oder austragen (ein Eintrag je Tag und Art, siehe trainingId). Ziel ist, was der
+// Knopf anzeigt – hat ein anderer Tab oder Sync den Stand inzwischen geändert, kehrt sich nichts um.
+function setTraining(day, type, on) {
   if (!isValidDay(day) || day > dayKey()) return;
   const id = trainingId(day, type);
   const prev = store.getState().trainings[id];
-  store.upsert('trainings', { id, day, type, deleted: !!prev && !prev.deleted });
+  if (!!prev && !prev.deleted === on) render();
+  else store.upsert('trainings', { id, day, type, deleted: !on });
 }
+
+const pressedTarget = (btn) => btn.getAttribute('aria-pressed') !== 'true';
+let refreshTrainingDialog = null; // hält den offenen Tages-Dialog aktuell (Sync, anderer Tab, Mitternacht)
 
 // Training an einem anderen Tag nachtragen oder korrigieren
 function trainingDayDialog(day) {
   if (!isValidDay(day) || day > dayKey()) return;
-  const body = () => trainingToggles(stats.training, day, stats.today, { modal: true });
-  openModal({
+  let form = null;
+  const fill = () => {
+    if (!form?.isConnected) return;
+    const focused = document.activeElement?.closest?.('#modal [data-type]')?.dataset.type;
+    form.querySelector('.modal-body').innerHTML = trainingToggles(stats.training, day, stats.today, { modal: true });
+    if (focused) form.querySelector(`[data-type="${focused}"]`)?.focus();
+  };
+  ({ form } = openModal({
     title: fmtLongDay(day),
-    body: body(),
+    body: trainingToggles(stats.training, day, stats.today, { modal: true }),
     submitLabel: 'Fertig',
     cancel: false,
-    onAction: (action, form, btn) => {
-      if (action !== 'training-toggle') return;
-      const type = btn.dataset.type;
-      toggleTraining(day, type);
-      form.querySelector('.modal-body').innerHTML = body();
-      form.querySelector(`[data-type="${type}"]`)?.focus();
+    onAction: (action, _form, btn) => {
+      if (action === 'training-toggle') setTraining(day, btn.dataset.type, pressedTarget(btn));
     },
-  });
+    onClose: () => {
+      refreshTrainingDialog = null;
+      document.querySelector(`.tc-cell[data-day="${day}"]`)?.focus();
+    },
+  }));
+  refreshTrainingDialog = fill;
 }
 
 // ---------------------------------------------------------------- Dialoge
@@ -695,13 +711,21 @@ function exportData() {
 async function importFile(file) {
   try {
     const data = normalizeState(JSON.parse(await file.text()));
-    const count = Object.values(data.sessions).filter((s) => !s.deleted).length;
-    const ok = await confirmDialog(`Die Datei enthält ${count} Sessions. Sie werden mit deinen Daten zusammengeführt – doppelte Einträge werden erkannt.`, {
-      title: 'Backup importieren?',
-      okLabel: 'Importieren',
-    });
+    const live = (key) => Object.values(data[key]).filter((r) => !r.deleted).length;
+    const sessions = live('sessions');
+    const trainings = live('trainings');
+    const parts = [`${sessions} ${sessions === 1 ? 'Session' : 'Sessions'}`];
+    if (trainings) parts.push(`${trainings} ${trainings === 1 ? 'Training' : 'Trainings'}`);
+    const ok = await confirmDialog(
+      `Die Datei enthält ${parts.join(' und ')}. Sie werden mit deinen Daten zusammengeführt – doppelte Einträge werden erkannt.`,
+      {
+        title: 'Backup importieren?',
+        okLabel: 'Importieren',
+      },
+    );
     if (!ok) return;
-    store.replaceState(mergeStates(store.getState(), data), 'import');
+    const local = store.getState();
+    store.replaceState(mergeStates(local, restoreFromBackup(local, data)), 'import');
     toast({ icon: '⬆', title: 'Import abgeschlossen' });
   } catch {
     toast({ icon: '⚠️', title: 'Import fehlgeschlagen', text: 'Die Datei ist kein gültiges Backup.', kind: 'error' });
@@ -710,11 +734,14 @@ async function importFile(file) {
 
 async function resetData() {
   const synced = store.getPrefs().sync?.token ? ' Auch auf deinen synchronisierten Geräten.' : '';
-  const ok = await confirmDialog(`Alle Bücher, Projekte, Sessions und XP werden gelöscht.${synced} Das lässt sich nicht rückgängig machen.`, {
-    title: 'Wirklich alles löschen?',
-    okLabel: 'Alles löschen',
-    danger: true,
-  });
+  const ok = await confirmDialog(
+    `Alle Bücher, Projekte, Sessions, Trainings und XP werden gelöscht.${synced} Ein vorher exportiertes Backup kannst du wieder importieren.`,
+    {
+      title: 'Wirklich alles löschen?',
+      okLabel: 'Alles löschen',
+      danger: true,
+    },
+  );
   if (!ok) return;
   store.resetAll();
   store.setPrefs({ seenAchievements: null, lastLevel: null });
@@ -967,7 +994,7 @@ const actions = {
     ui.historyLimit += 50;
     render();
   },
-  'training-toggle': (el) => toggleTraining(el.dataset.day, el.dataset.type),
+  'training-toggle': (el) => setTraining(el.dataset.day, el.dataset.type, pressedTarget(el)),
   'training-day': (el) => trainingDayDialog(el.dataset.day),
   'training-more': () => {
     ui.trainingWeeks += 6;
@@ -1022,6 +1049,7 @@ document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-action]');
   if (!el || el.closest('#modal, #confirm')) return;
   e.preventDefault();
+  if (isEchoTap(e)) return;
   actions[el.dataset.action]?.(el);
 });
 
@@ -1097,6 +1125,7 @@ store.subscribe((reason) => {
 });
 
 window.addEventListener('hashchange', () => {
+  armTapGuard(); // Doppeltipp auf einen Link: der zweite Tipp träfe sonst die neue Seite
   closeModal();
   render();
   scrollToTarget();

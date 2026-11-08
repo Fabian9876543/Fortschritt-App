@@ -64,7 +64,9 @@ export function upsert(collection, record) {
   const now = Date.now();
   const id = record.id || uid();
   const prev = state[collection][id];
-  state[collection][id] = { ...prev, ...record, id, createdAt: prev?.createdAt || now, updatedAt: now };
+  const next = { ...prev, ...record, id, createdAt: prev?.createdAt || now, updatedAt: now };
+  delete next.reset; // eine Änderung ist keine Löschmarke des Zurücksetzens mehr
+  state[collection][id] = next;
   commit(collection);
   return state[collection][id];
 }
@@ -72,7 +74,9 @@ export function upsert(collection, record) {
 export function remove(collection, id) {
   const prev = state[collection][id];
   if (!prev) return;
-  state[collection][id] = { ...prev, deleted: true, updatedAt: Date.now() };
+  const next = { ...prev, deleted: true, updatedAt: Date.now() };
+  delete next.reset;
+  state[collection][id] = next;
   commit(collection);
 }
 
@@ -84,7 +88,7 @@ export function resetAll() {
   Object.assign(next.profile, { updatedAt: now, nameUpdatedAt: now, goalsUpdatedAt: now, remindersUpdatedAt: now });
   for (const key of COLLECTIONS) {
     for (const [id, rec] of Object.entries(state[key])) {
-      next[key][id] = { id, deleted: true, createdAt: rec.createdAt || now, updatedAt: now };
+      next[key][id] = { id, deleted: true, reset: true, createdAt: rec.createdAt || now, updatedAt: now };
     }
   }
   state = next;

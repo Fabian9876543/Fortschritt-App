@@ -381,7 +381,7 @@ export function viewTraining(ctx) {
             ${weeks.join('')}
           </div>
           <p class="hint">Tippe auf einen Tag, um etwas nachzutragen oder zu korrigieren.</p>
-          <button class="btn btn-ghost btn-sm" data-action="training-more">Frühere Wochen</button>
+          <button id="training-more" class="btn btn-ghost btn-sm" data-action="training-more">Frühere Wochen</button>
         </article>
       </div>
     </section>`;

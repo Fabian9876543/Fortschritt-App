@@ -106,6 +106,36 @@ export function toast({ icon = '✨', title, text = '', kind = 'info', timeout =
 
 // ---------------------------------------------------------------- Dialoge
 
+// Doppeltipp-Schutz: Kurz nach einem Seitenwechsel oder dem Öffnen eines Dialogs soll ein
+// zweiter Tipp an derselben Stelle nicht treffen, was dort jetzt liegt. Gezielte Tipps
+// woanders und Klicks per Tastatur (detail 0) bleiben erlaubt.
+let lastPointer = { x: -1e4, y: -1e4, t: -Infinity };
+let armed = { x: -1e4, y: -1e4, t: -Infinity };
+document.addEventListener('pointerdown', (e) => (lastPointer = { x: e.clientX, y: e.clientY, t: performance.now() }), true);
+
+// Nur wenn gerade getippt wurde – ein von selbst geöffneter Dialog braucht keinen Schutz
+export function armTapGuard() {
+  const now = performance.now();
+  if (now - lastPointer.t < 600) armed = { x: lastPointer.x, y: lastPointer.y, t: now };
+}
+
+export function isEchoTap(e) {
+  return e.detail !== 0 && performance.now() - armed.t < 400 && Math.hypot(e.clientX - armed.x, e.clientY - armed.y) < 40;
+}
+
+function guardFreshTaps(form) {
+  armTapGuard();
+  form.addEventListener(
+    'click',
+    (e) => {
+      if (!isEchoTap(e)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    },
+    true,
+  );
+}
+
 // Öffnet den Haupt-Dialog. onSubmit(form, submitter) → true schließt den Dialog.
 export function openModal({
   title,
@@ -137,6 +167,7 @@ export function openModal({
       </footer>
     </form>`;
   const form = dlg.querySelector('form');
+  guardFreshTaps(form);
   const close = () => {
     if (dlg.open) dlg.close();
   };
@@ -181,6 +212,7 @@ export function confirmDialog(message, { title = 'Sicher?', okLabel = 'OK', dang
         <button value="yes" class="btn ${danger ? 'btn-danger' : 'btn-primary'}">${esc(okLabel)}</button>
       </footer>
     </form>`;
+  guardFreshTaps(dlg.querySelector('form'));
   return new Promise((resolve) => {
     dlg.onclose = () => resolve(dlg.returnValue === 'yes');
     dlg.returnValue = '';
