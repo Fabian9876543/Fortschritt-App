@@ -64,6 +64,8 @@ Ohne Sync liegen die Daten nur auf dem jeweiligen Gerät. Für den Abgleich:
 
 Die Daten landen in einem *geheimen* Gist in deinem GitHub-Account (nicht öffentlich gelistet). Der Token bleibt auf dem Gerät und wird nur an `api.github.com` geschickt. Änderungen von beiden Geräten werden zusammengeführt – auch wenn du auf einem Gerät offline warst.
 
+Der Punkt oben in der App zeigt den Stand: **grün** = abgeglichen, **gelb** = Änderungen werden gleich hochgeladen, **rot** = Fehler (Maus drüber bzw. Einstellungen → Sync zeigt, welcher), **grauer Ring** = seit dem Öffnen noch nicht abgeglichen.
+
 ### 4. Erinnerungen & iPhone-Widget
 
 In der App oben auf die 🔔 tippen (bzw. „Erinnerungen“ in der Seitenleiste):

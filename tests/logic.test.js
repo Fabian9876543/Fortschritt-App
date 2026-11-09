@@ -4,6 +4,7 @@ import {
   addDays,
   bookPageAt,
   changeProfile,
+  changesSince,
   computeStats,
   closePhoneLaunch,
   confirmPhoneTimer,
@@ -516,4 +517,24 @@ test('„Bis Seite“: gilt nur im ursprünglichen Zusammenhang; Einträge währ
   assert.equal(stats.pagesBySession.t, 50);
   assert.equal(stats.books.z.currentPage, 100);
   assert.equal(bookPageAt(st, 'z', '2026-10-28', at('21:00'), 't'), 50);
+});
+
+test('Beim Schließen: nur die Änderungen seit dem letzten Abgleich, zusammenführbar', () => {
+  const before = stateWith([session('2026-11-01', { kind: 'read', pages: 10 })]);
+  const sid = Object.keys(before.sessions)[0];
+  assert.equal(changesSince(before, before), null);
+  const now = JSON.parse(JSON.stringify(before));
+  now.sessions.neu = { id: 'neu', kind: 'work', day: '2026-11-02', minutes: 30, createdAt: 9, updatedAt: 9 };
+  now.trainings['2026-11-02:run'] = { id: '2026-11-02:run', day: '2026-11-02', type: 'run', createdAt: 9, updatedAt: 9 };
+  const changes = changesSince(before, now);
+  assert.deepEqual(Object.keys(changes.sessions), ['neu']);
+  assert.deepEqual(Object.keys(changes.trainings), ['2026-11-02:run']);
+  assert.equal(changes.profile, undefined);
+  // Ein anderes Gerät hat inzwischen eine Session hochgeladen: Zusammenführen verliert nichts
+  const remote = JSON.parse(JSON.stringify(before));
+  remote.sessions.handy = { id: 'handy', kind: 'read', day: '2026-11-02', pages: 26, createdAt: 8, updatedAt: 8 };
+  const merged = mergeStates(remote, normalizeState(changes));
+  assert.deepEqual(Object.keys(merged.sessions).sort(), [sid, 'handy', 'neu'].sort());
+  const { goals, name, reminders } = normalizeState(remote).profile;
+  assert.deepEqual({ goals: merged.profile.goals, name: merged.profile.name, reminders: merged.profile.reminders }, { goals, name, reminders });
 });

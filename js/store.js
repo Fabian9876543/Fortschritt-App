@@ -129,6 +129,12 @@ export function getPrefs() {
   return prefs;
 }
 
+// Frisch aus dem Speicher – falls ein anderer Tab gerade etwas geändert hat
+export function freshPrefs() {
+  prefs = { ...prefDefaults, ...readJSON(PREFS_KEY, {}) };
+  return prefs;
+}
+
 // Frisch lesen, dann ändern: Was ein anderer Tab inzwischen gespeichert hat, bleibt erhalten
 export function setPrefs(patch) {
   prefs = { ...prefDefaults, ...readJSON(PREFS_KEY, {}), ...patch };

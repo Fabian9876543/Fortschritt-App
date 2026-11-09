@@ -293,6 +293,25 @@ export function mergeStates(a, b) {
   return out;
 }
 
+// Was sich seit dem letzten Abgleich geändert hat (nur diese Einträge, für pushOnClose)
+export function changesSince(before, now) {
+  const out = { schema: 1 };
+  let any = false;
+  if (canonical(before.profile) !== canonical(now.profile)) {
+    out.profile = now.profile;
+    any = true;
+  }
+  for (const key of COLLECTIONS) {
+    out[key] = {};
+    for (const [id, rec] of Object.entries(now[key])) {
+      if (before[key][id] && canonical(before[key][id]) === canonical(rec)) continue;
+      out[key][id] = rec;
+      any = true;
+    }
+  }
+  return any ? out : null;
+}
+
 // Nach „Alle Daten löschen“ soll ein Backup die Einträge zurückbringen: Löschmarken des
 // Zurücksetzens (reset: true) verlieren gegen lebende Einträge aus dem Backup.
 export function restoreFromBackup(local, backup, now = Date.now()) {

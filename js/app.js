@@ -5,6 +5,7 @@ import {
   XP_RULES,
   bookPageAt,
   canonical,
+  changesSince,
   closePhoneLaunch,
   computeStats,
   confirmPhoneTimer,
@@ -30,6 +31,7 @@ import {
   snoozeTimer,
   timerElapsed,
   trainingId,
+  uid,
   widgetSummary,
 } from './logic.js';
 import { WIDGET_FILE, pushOnClose, syncWithGist, widgetDataUrl } from './sync.js';
@@ -57,7 +59,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.4.5';
+const VERSION = '1.4.6';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
@@ -89,8 +91,18 @@ function context() {
   };
 }
 
+// Einstellungen, die eine Seite zeigt (ohne Zeitstempel und Merklisten)
+function shownPrefs() {
+  const p = { ...store.getPrefs() };
+  for (const key of ['reminderLog', 'seenAchievements', 'lastLevel']) delete p[key];
+  p.sync = p.sync ? { token: !!p.sync.token, gistId: p.sync.gistId || null, owner: p.sync.owner || null } : null;
+  return canonical(p);
+}
+let renderedPrefs = '';
+
 function render() {
   renderedDay = dayKey();
+  renderedPrefs = shownPrefs();
   stats = computeStats(store.getState(), renderedDay);
   const ctx = context();
   const active = document.activeElement?.id;
@@ -842,7 +854,9 @@ let syncing = false;
 let syncAgain = false;
 let changeSeq = 0; // lokale Änderungen, die hochgeladen werden müssen
 let syncedSeq = 0; // … davon schon im Gist
-let discovered = false; // einmal pro Start nach weiteren Daten-Gists suchen
+let wantDiscover = true; // nach weiteren Daten-Gists schauen: beim Start, beim Öffnen, nach dem Anlegen
+let lastSynced = null; // Stand nach dem letzten Abgleich (für die Änderungen beim Schließen)
+let otherGists = []; // weitere Daten-Gists (selten, z. B. zwei gleichzeitig verbundene Geräte)
 let lastSyncAt = 0;
 const PULL_EVERY = 2 * 60000; // solange die App sichtbar ist, regelmäßig abgleichen
 
@@ -854,11 +868,31 @@ function scheduleSync(delay = 1200) {
   syncTimeout = setTimeout(() => runSync(), delay);
 }
 
-// App wird verdeckt oder geschlossen: Offenes sofort hochladen (keepalive überlebt das Schließen)
+// App wird verdeckt: Offenes sofort abgleichen (keepalive überlebt ein Einfrieren der Seite)
 function flushSync() {
   if (!syncPending() || !store.getPrefs().sync?.token) return;
   clearTimeout(syncTimeout);
   runSync({ keepalive: true });
+}
+
+// Tab/Fenster wird geschlossen: nur die Änderungen seit dem letzten Abgleich hinterlegen
+function pushChangesOnClose() {
+  const cfg = store.getPrefs().sync;
+  if (!syncPending() || !cfg?.token || !cfg.gistId) return;
+  const now = normalizeState(store.getState());
+  const changes = lastSynced ? changesSince(lastSynced, now) : now;
+  if (!changes) return;
+  let deviceId = store.getPrefs().deviceId;
+  if (!deviceId) store.setPrefs({ deviceId: (deviceId = uid().slice(0, 8)) });
+  if (pushOnClose(cfg, changes, deviceId)) syncedSeq = changeSeq;
+}
+
+// Nur die Sync- und Widget-Karte aktualisieren, damit Eingaben in anderen Feldern bleiben
+function refreshSyncCards() {
+  const card = $('#sync-card');
+  if (card) card.outerHTML = syncCard(context());
+  const wcard = $('#widget-card');
+  if (wcard) wcard.outerHTML = widgetCard(context());
 }
 
 async function runSync({ manual = false, keepalive = false } = {}) {
@@ -879,20 +913,29 @@ async function runSync({ manual = false, keepalive = false } = {}) {
   renderChrome();
   let ok = false;
   const seq = changeSeq;
+  const discovering = wantDiscover;
+  wantDiscover = false;
   try {
-    const { state, gistId, owner, created } = await syncWithGist(cfg, store.getState, {
+    const { state, gistId, owner, created, others } = await syncWithGist(cfg, store.getState, {
       extraFiles: (merged) => ({ [WIDGET_FILE]: JSON.stringify(widgetSummary(merged, computeStats(merged, dayKey()), APP_URL)) }),
-      discover: !discovered,
+      discover: discovering,
       keepalive,
+      others: otherGists,
     });
+    otherGists = others;
     // Was während des Uploads lokal dazukam, bleibt erhalten
     const merged = mergeStates(store.getState(), state);
-    // Nur speichern, wenn nicht inzwischen getrennt oder neu verbunden wurde
-    const current = store.getPrefs().sync;
-    if (current?.token === cfg.token) store.setPrefs({ sync: { ...current, gistId, owner: owner || current.owner || null, lastSync: Date.now() } });
+    lastSynced = state;
+    // Nur speichern, wenn nicht inzwischen (auch in einem anderen Tab) getrennt oder neu verbunden wurde
+    const current = store.freshPrefs().sync;
+    if (current?.token === cfg.token && current.cid === cfg.cid) {
+      store.setPrefs({ sync: { ...current, gistId, owner: owner || current.owner || null, lastSync: Date.now() } });
+    }
     // Neu angelegt? Kurz danach noch einmal suchen – hat ein zweites Gerät gleichzeitig eins angelegt, finden beide zusammen
-    discovered = !created;
-    if (created) setTimeout(() => scheduleSync(0), 5000);
+    if (created) {
+      wantDiscover = true;
+      setTimeout(() => scheduleSync(0), 5000);
+    }
     syncedSeq = seq;
     ui.syncStatus = 'ok';
     ui.syncError = '';
@@ -900,17 +943,14 @@ async function runSync({ manual = false, keepalive = false } = {}) {
     if (manual) toast({ icon: '☁️', title: 'Synchronisiert' });
     ok = true;
   } catch (err) {
+    if (discovering) wantDiscover = true;
     ui.syncStatus = 'error';
     ui.syncError = err.message || 'Unbekannter Fehler';
     if (manual) toast({ icon: '⚠️', title: 'Sync fehlgeschlagen', text: ui.syncError, kind: 'error', timeout: 6000 });
   } finally {
     syncing = false;
     lastSyncAt = Date.now();
-    // Nur die Sync-Karte aktualisieren, damit Eingaben in anderen Feldern bleiben
-    const card = $('#sync-card');
-    if (card) card.outerHTML = syncCard(context());
-    const wcard = $('#widget-card');
-    if (wcard) wcard.outerHTML = widgetCard(context());
+    refreshSyncCards();
     renderChrome();
     // Was während des Syncs dazukam, gleich hinterher – nach Fehlern nicht im Kreis
     if (ok && (syncAgain || syncPending())) scheduleSync(300);
@@ -920,15 +960,17 @@ async function runSync({ manual = false, keepalive = false } = {}) {
 }
 
 async function connectSync(form) {
-  if (syncing) return; // zweites Tippen auf „Verbinden“, während der erste Versuch läuft
+  // zweites Tippen auf „Verbinden“, während der erste Versuch läuft
+  if (syncing) return toast({ icon: '⏳', title: 'Einen Moment …', text: 'Der Sync läuft gerade noch.' });
   const token = form.elements.token.value.trim();
   const gistId = form.elements.gistId.value.trim().replace(/^.*\//, '');
   if (!token) return toast({ icon: '🔑', title: 'Bitte Token einfügen', kind: 'error' });
+  if (!navigator.onLine) return toast({ icon: '📴', title: 'Offline', text: 'Verbinde den Sync, sobald du wieder online bist.', kind: 'error' });
   const button = form.querySelector('button[type="submit"]');
   if (button) button.disabled = true;
-  // Eine selbst eingetragene Gist-ID bleibt fest, sonst wird nach allen Daten-Gists gesucht
-  store.setPrefs({ sync: { token, gistId: gistId || null, pinned: !!gistId, lastSync: 0 } });
-  discovered = false;
+  // cid kennzeichnet diese Verbindung: Ein älterer Sync (anderer Tab) überschreibt sie so nicht
+  store.setPrefs({ sync: { token, gistId: gistId || null, cid: uid(), lastSync: 0 } });
+  wantDiscover = true;
   const ok = await runSync({ manual: true });
   if (button) button.disabled = false;
   if (!ok && store.getPrefs().sync?.token === token) {
@@ -1125,9 +1167,14 @@ document.addEventListener('submit', (e) => {
 
 store.subscribe((reason) => {
   if (reason === 'prefs') {
-    // Ein anderer Tab hat Geräte-Einstellungen geändert (z. B. Sync verbunden)
+    // Ein anderer Tab hat Geräte-Einstellungen geändert. Ein Sync dort ändert nur „zuletzt
+    // synchronisiert“ – dafür nicht die ganze Seite neu zeichnen (Eingaben blieben sonst nicht).
     applyTheme();
-    render();
+    if (shownPrefs() !== renderedPrefs) render();
+    else {
+      renderChrome();
+      refreshSyncCards();
+    }
     return;
   }
   const local = reason !== 'sync' && reason !== 'external';
@@ -1161,7 +1208,7 @@ document.addEventListener('visibilitychange', () => {
     return;
   }
   if (document.visibilityState !== 'visible') return;
-  discovered = false; // beim Öffnen auch nach weiteren Daten-Gists schauen
+  wantDiscover = true; // beim Öffnen auch nach weiteren Daten-Gists schauen
   timer = store.getTimer();
   scheduleExpiry();
   // Abgelaufener Timer wartet aufs Speichern → direkt zum Wecker-Bildschirm. Neu
@@ -1187,10 +1234,7 @@ for (const type of ['pointerdown', 'keydown']) {
   );
 }
 window.addEventListener('online', () => scheduleSync(300));
-window.addEventListener('pagehide', () => {
-  const cfg = store.getPrefs().sync;
-  if (syncPending() && cfg?.token && pushOnClose(cfg, store.getState())) syncedSeq = changeSeq;
-});
+window.addEventListener('pagehide', pushChangesOnClose);
 window.addEventListener('focus', () => scheduleSync(300));
 window.addEventListener('offline', () => {
   if (store.getPrefs().sync?.token) {
