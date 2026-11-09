@@ -2,7 +2,7 @@
 // liegen unter DATA_KEY und werden synchronisiert; alles unter PREFS_KEY bzw.
 // TIMER_KEY bleibt auf dem jeweiligen Gerät (Timer, Theme, Sync-Zugang …).
 
-import { COLLECTIONS, changeProfile, emptyState, normalizeState, uid } from './logic.js';
+import { COLLECTIONS, changeProfile, dayKey, emptyState, normalizeState, uid } from './logic.js';
 
 const DATA_KEY = 'fortschritt:data:v1';
 const PREFS_KEY = 'fortschritt:prefs:v1';
@@ -85,7 +85,9 @@ export function remove(collection, id) {
 export function resetAll() {
   const now = Date.now();
   const next = emptyState();
-  Object.assign(next.profile, { updatedAt: now, nameUpdatedAt: now, goalsUpdatedAt: now, remindersUpdatedAt: now });
+  // Auch der Zielverlauf: Sonst käme über den Sync der alte zurück
+  const goalLog = [{ from: dayKey(new Date(now)), ...next.profile.goals, at: now }];
+  Object.assign(next.profile, { updatedAt: now, nameUpdatedAt: now, goalsUpdatedAt: now, remindersUpdatedAt: now, goalLog });
   for (const key of COLLECTIONS) {
     for (const [id, rec] of Object.entries(state[key])) {
       next[key][id] = { id, deleted: true, reset: true, createdAt: rec.createdAt || now, updatedAt: now };

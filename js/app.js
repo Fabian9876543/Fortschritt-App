@@ -57,7 +57,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.4.4';
+const VERSION = '1.4.5';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
@@ -176,8 +176,17 @@ function celebrate(before, after) {
   if (after.totals.booksFinished > before.totals.booksFinished) {
     const id = Object.keys(after.books).find((k) => after.books[k].finished && !before.books[k]?.finished);
     const book = id && store.getState().books[id];
-    toast({ icon: '🎉', title: 'Buch beendet!', text: `${book ? `„${book.title}“ · ` : ''}+${XP_RULES.bookFinished} XP`, kind: 'xp', timeout: 5000 });
-    party = true;
+    // Bonus gibt es nur fürs Fertiglesen per Session; schon fertig eingetragen zählt ohne XP
+    const earned = !!(id && after.books[id].finishedDay);
+    const name = book ? `„${book.title}“ · ` : '';
+    toast({
+      icon: '🎉',
+      title: 'Buch beendet!',
+      text: earned ? `${name}+${XP_RULES.bookFinished} XP` : `${name}als gelesen eingetragen`,
+      kind: 'xp',
+      timeout: 5000,
+    });
+    if (earned) party = true;
   }
   const seen = new Set(before.achievements.filter((a) => a.done).map((a) => a.id));
   for (const a of after.achievements) {
@@ -513,7 +522,7 @@ function sessionDialog(preset, { mode, phoneNote = false, newDay = false, then =
   const ctx = context();
   const title = mode === 'timer' ? 'Session speichern' : mode === 'edit' ? 'Session bearbeiten' : 'Session nachtragen';
   // Stelle der Session im Verlauf: bearbeitet = ihre eigene, Timer = Startzeit, sonst Ende des Tages
-  const at = editing ? editing.startedAt || editing.createdAt || 0 : mode === 'timer' ? timer?.startedAt || Infinity : Infinity;
+  const at = editing ? editing.createdAt || editing.startedAt || 0 : Infinity;
   // Was zuletzt getippt wurde, gilt: „Bis Seite“ wird als Seite gespeichert, sonst die Seitenzahl
   let source = editing?.toPage != null && editing.toPage !== '' ? 'toPage' : 'pages';
   const sync = (form, e) => {
@@ -527,9 +536,9 @@ function sessionDialog(preset, { mode, phoneNote = false, newDay = false, then =
     const pages = form.elements.pages;
     if (e?.target === toPage) source = 'toPage';
     else if (e?.target === pages) source = 'pages';
+    if (!e && source === 'toPage') toPage.value = editing.toPage;
     toPage.closest('.field').hidden = base === null;
     if (base !== null) {
-      if (!e && source === 'toPage') toPage.value = editing.toPage;
       if (source === 'toPage') pages.value = toPage.value === '' ? '' : Math.max(0, Number(toPage.value) - base);
       else toPage.value = pages.value === '' ? '' : base + Number(pages.value);
       toPage.placeholder = String(base);
@@ -588,6 +597,10 @@ function sessionDialog(preset, { mode, phoneNote = false, newDay = false, then =
       if (minutes < 0 || pages < 0) return ((err.textContent = 'Negative Werte gehen nicht.'), false);
       if (kind === 'work' && minutes < 1) return ((err.textContent = 'Wie viele Minuten hast du gearbeitet?'), false);
       if (kind === 'read' && minutes < 1 && pages < 1) return ((err.textContent = 'Trag Seiten oder Minuten ein.'), false);
+      const endPage =
+        kind === 'read' && source === 'toPage' && !f.toPage.closest('.field').hidden && f.toPage.value !== ''
+          ? Math.max(0, Math.round(Number(f.toPage.value)))
+          : null;
       const record = {
         ...(editing || {}),
         id: editing?.id,
@@ -595,10 +608,10 @@ function sessionDialog(preset, { mode, phoneNote = false, newDay = false, then =
         day,
         minutes,
         pages: kind === 'read' ? pages : 0,
-        toPage:
-          kind === 'read' && source === 'toPage' && !f.toPage.closest('.field').hidden && f.toPage.value !== ''
-            ? Math.max(0, Math.round(Number(f.toPage.value)))
-            : null,
+        toPage: endPage,
+        // Wozu die Seite gehört: ändert eine ältere App-Version Buch oder Seiten, gilt toPage nicht mehr
+        toPageBook: endPage === null ? null : f.bookId.value,
+        toPagePages: endPage === null ? null : pages,
         projectId: kind === 'work' ? f.projectId.value : '',
         bookId: kind === 'read' ? f.bookId.value : '',
         note: f.note.value.trim(),

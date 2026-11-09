@@ -146,6 +146,7 @@ export function normalizeState(raw) {
           from: e.from,
           workMin: clampInt(e.workMin, 0, 1440, DEFAULT_GOALS.workMin),
           readPages: clampInt(e.readPages, 0, 5000, DEFAULT_GOALS.readPages),
+          at: Math.max(0, Number(e.at) || 0),
         });
       }
       if (log.size) s.profile.goalLog = [...log.values()].sort(byFrom);
@@ -219,15 +220,29 @@ export function changeProfile(profile, patch, now = Date.now(), today = dayKey(n
   }
   const goals = { ...profile.goals, ...(patch.goals || {}) };
   if (goals.workMin !== profile.goals.workMin || goals.readPages !== profile.goals.readPages) {
-    const log = (profile.goalLog?.length ? profile.goalLog : [{ from: GOALS_SINCE, ...profile.goals }]).filter((e) => e.from !== today);
-    log.push({ from: today, workMin: goals.workMin, readPages: goals.readPages });
-    Object.assign(next, { goals, goalLog: log.sort(byFrom), goalsUpdatedAt: now });
+    const since = Number(profile.goalsUpdatedAt ?? profile.updatedAt) || 0;
+    const log = profile.goalLog?.length ? [...profile.goalLog] : [{ from: GOALS_SINCE, ...profile.goals, at: since }];
+    // Gelten gerade andere Ziele als im Verlauf steht (z. B. von einer älteren App-Version
+    // geändert), zuerst diese ab ihrem Tag eintragen – sonst bewertet der Verlauf die Tage
+    // dazwischen später mit veralteten Zielen.
+    const last = log[log.length - 1];
+    if (last.workMin !== profile.goals.workMin || last.readPages !== profile.goals.readPages) {
+      const from = dayKey(new Date(since));
+      if (from >= last.from && from < today) {
+        if (from === last.from) log.pop();
+        log.push({ from, ...profile.goals, at: since });
+      }
+    }
+    const kept = log.filter((e) => e.from !== today);
+    kept.push({ from: today, workMin: goals.workMin, readPages: goals.readPages, at: now });
+    Object.assign(next, { goals, goalLog: kept.sort(byFrom), goalsUpdatedAt: now });
   }
   return next;
 }
 
 // Abgleich zweier Profile Feld für Feld (ohne eigenen Zeitstempel zählt updatedAt).
-// Den Zielverlauf führen wir zusammen; am selben Tag gewinnt die Seite mit den neueren Zielen.
+// Den Zielverlauf führen wir Eintrag für Eintrag zusammen: Für jeden Tag gilt die
+// spätere Änderung (at) – so kommen alle Geräte zum selben Ergebnis, egal in welcher Reihenfolge.
 function mergeProfile(a, b) {
   const out = { ...newer(a, b), updatedAt: Math.max(Number(a.updatedAt) || 0, Number(b.updatedAt) || 0) };
   const winner = (field, stamp) => {
@@ -241,10 +256,13 @@ function mergeProfile(a, b) {
     out[field] = w[field];
     out[stamp] = Number(w[stamp] ?? w.updatedAt) || 0;
   }
-  const goalsSide = winner('goals', 'goalsUpdatedAt');
   const log = new Map();
-  for (const e of (goalsSide === a ? b : a).goalLog || []) log.set(e.from, e);
-  for (const e of goalsSide.goalLog || []) log.set(e.from, e);
+  for (const e of [...(a.goalLog || []), ...(b.goalLog || [])]) {
+    const cur = log.get(e.from);
+    const ta = Number(e.at) || 0;
+    const tb = Number(cur?.at) || 0;
+    if (!cur || ta > tb || (ta === tb && canonical(e) > canonical(cur))) log.set(e.from, e);
+  }
   if (log.size) out.goalLog = [...log.values()].sort(byFrom);
   else delete out.goalLog;
   return out;
@@ -580,9 +598,12 @@ function newDay(key) {
   };
 }
 
+// Innerhalb eines Tages zählt, wann eine Session eingetragen wurde (createdAt) – auch für
+// „Bis Seite“: Ein Eintrag während eines laufenden Timers kommt so vor dessen Session.
+const sessionTime = (s) => s.createdAt || s.startedAt || 0;
 function sessionOrder(a, b) {
   if (a.day !== b.day) return a.day < b.day ? -1 : 1;
-  return (a.startedAt || a.createdAt || 0) - (b.startedAt || b.createdAt || 0);
+  return sessionTime(a) - sessionTime(b);
 }
 
 export function liveSessions(state) {
@@ -595,7 +616,11 @@ export function liveSessions(state) {
 // dem Stand davor – so zählt nichts doppelt, wenn Handy und Laptop dieselben Seiten melden.
 export function readPages(s, before) {
   const to = Number(s.toPage);
-  if (s.toPage !== null && s.toPage !== undefined && s.toPage !== '' && Number.isFinite(to) && before !== null) return Math.max(0, Math.round(to) - before);
+  // Hat eine ältere App-Version Buch oder Seiten geändert, passt toPage nicht mehr dazu
+  const stale = s.toPageBook !== undefined && (s.toPageBook !== s.bookId || Number(s.toPagePages) !== Number(s.pages));
+  if (!stale && s.toPage !== null && s.toPage !== undefined && s.toPage !== '' && Number.isFinite(to) && before !== null) {
+    return Math.max(0, Math.round(to) - before);
+  }
   return Math.max(0, Number(s.pages) || 0);
 }
 
@@ -606,7 +631,7 @@ export function bookPageAt(state, bookId, day, at = Infinity, excludeId = null) 
   if (!book) return null;
   let page = Math.max(0, Number(book.startPage) || 0);
   for (const s of liveSessions(state)) {
-    if (s.day > day || (s.day === day && (s.startedAt || s.createdAt || 0) >= at)) break;
+    if (s.day > day || (s.day === day && sessionTime(s) >= at)) break;
     if (s.kind === 'work' || s.bookId !== bookId || s.id === excludeId) continue;
     page += readPages(s, page);
   }

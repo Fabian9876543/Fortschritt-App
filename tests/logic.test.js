@@ -461,3 +461,59 @@ test('Backup nach „Alle Daten löschen“: Einträge kommen zurück, gezielt G
   assert.equal(merged.trainings['2026-10-20:run'].type, 'run');
   assert.equal(computeStats(merged, '2026-10-21').totals.workMin, 30);
 });
+
+test('Zielverlauf: je Tag gilt die spätere Änderung – in jeder Reihenfolge gleich', () => {
+  const p0 = emptyState().profile;
+  const a = changeProfile(p0, { goals: { workMin: 90 } }, 1000, '2026-10-21'); // 10:00 auf Gerät A
+  const b = changeProfile(p0, { goals: { workMin: 30 } }, 2000, '2026-10-21'); // 11:00 auf Gerät B
+  const c = changeProfile(a, { goals: { readPages: 30 } }, 3000, '2026-10-22'); // A am nächsten Tag
+  const wrap = (profile) => ({ ...emptyState(), profile });
+  const m1 = mergeStates(mergeStates(wrap(c), wrap(b)), wrap(a)).profile;
+  const m2 = mergeStates(wrap(a), mergeStates(wrap(b), wrap(c))).profile;
+  assert.deepEqual(m1.goalLog, m2.goalLog);
+  assert.equal(goalsOn(m1, '2026-10-21').workMin, 30); // B hat an dem Tag später geändert
+  assert.deepEqual(goalsOn(m1, '2026-10-22'), { workMin: 90, readPages: 30 });
+});
+
+test('Zielverlauf: von einer älteren App-Version geänderte Ziele werden vor der nächsten Änderung eingetragen', () => {
+  const day = (d) => new Date(`2026-10-${d}T12:00:00`).getTime();
+  const p1 = changeProfile(emptyState().profile, { goals: { workMin: 90 } }, day('05'), '2026-10-05');
+  // ältere Version: setzt nur goals und updatedAt, ohne Verlauf
+  const old = { ...p1, goals: { workMin: 30, readPages: 20 }, goalsUpdatedAt: undefined, updatedAt: day('10') };
+  const p2 = changeProfile(old, { goals: { workMin: 45 } }, day('20'), '2026-10-20');
+  assert.deepEqual(goalsOn(p2, '2026-10-15'), { workMin: 30, readPages: 20 });
+  assert.deepEqual(goalsOn(p2, '2026-10-07'), { workMin: 90, readPages: 20 });
+  assert.deepEqual(goalsOn(p2, '2026-10-20'), { workMin: 45, readPages: 20 });
+});
+
+test('„Bis Seite“: gilt nur im ursprünglichen Zusammenhang; Einträge während eines Timers zählen davor', () => {
+  // Ältere Version hat Seiten bzw. Buch geändert, toPage aber stehen lassen
+  assert.equal(readPages({ toPage: 150, toPageBook: 'a', toPagePages: 30, bookId: 'a', pages: 10 }, 120), 10);
+  assert.equal(readPages({ toPage: 150, toPageBook: 'a', toPagePages: 30, bookId: 'b', pages: 30 }, 0), 30);
+  assert.equal(readPages({ toPage: 150, toPageBook: 'a', toPagePages: 30, bookId: 'a', pages: 30 }, 120), 30);
+  // Timer 20:00–21:00 („Bis Seite 100“), um 20:30 10 Seiten nachgetragen
+  const at = (t) => new Date(`2026-10-28T${t}:00`).getTime();
+  const st = stateWith(
+    [
+      { id: 'm', kind: 'read', day: '2026-10-28', bookId: 'z', pages: 10, createdAt: at('20:30'), updatedAt: 1 },
+      {
+        id: 't',
+        kind: 'read',
+        day: '2026-10-28',
+        bookId: 'z',
+        toPage: 100,
+        toPageBook: 'z',
+        toPagePages: 50,
+        pages: 50,
+        startedAt: at('20:00'),
+        createdAt: at('21:00'),
+        updatedAt: 1,
+      },
+    ],
+    { books: { z: { id: 'z', title: 'Zauberberg', totalPages: 900, startPage: 40, updatedAt: 1 } } },
+  );
+  const stats = computeStats(st, '2026-10-28');
+  assert.equal(stats.pagesBySession.t, 50);
+  assert.equal(stats.books.z.currentPage, 100);
+  assert.equal(bookPageAt(st, 'z', '2026-10-28', at('21:00'), 't'), 50);
+});

@@ -391,23 +391,26 @@ export function viewTraining(ctx) {
 
 // Die aktuelle Auswahl bleibt wählbar, auch wenn das Projekt archiviert bzw.
 // das Buch beendet ist – sonst ginge beim Bearbeiten die Zuordnung verloren.
-export function refOptions(ctx, kind, selected) {
+// keepDeleted: beim Bearbeiten einer Session bleibt ein gelöschtes Buch/Projekt ausgewählt,
+// sonst ginge die Zuordnung (und z. B. der Buch-Bonus) beim Speichern verloren.
+export function refOptions(ctx, kind, selected, { keepDeleted = false } = {}) {
   const { state, stats } = ctx;
+  const gone = (r) => (r.deleted ? ' (gelöscht)' : '');
   if (kind === 'work') {
     const list = activeProjects(state, stats);
     const sel = state.projects[selected];
-    if (sel && !sel.deleted && !list.includes(sel)) list.unshift(sel);
+    if (sel && (keepDeleted || !sel.deleted) && !list.includes(sel)) list.unshift(sel);
     return [
       `<option value="">Ohne Projekt</option>`,
-      ...list.map((p) => `<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>${esc(projectLabel(p))}</option>`),
+      ...list.map((p) => `<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>${esc(projectLabel(p) + gone(p))}</option>`),
     ].join('');
   }
   const list = activeBooks(state, stats);
   const sel = state.books[selected];
-  if (sel && !sel.deleted && !list.includes(sel)) list.unshift(sel);
+  if (sel && (keepDeleted || !sel.deleted) && !list.includes(sel)) list.unshift(sel);
   return [
     `<option value="">Ohne Buch</option>`,
-    ...list.map((b) => `<option value="${esc(b.id)}" ${b.id === selected ? 'selected' : ''}>${esc(b.title)}</option>`),
+    ...list.map((b) => `<option value="${esc(b.id)}" ${b.id === selected ? 'selected' : ''}>${esc(b.title + gone(b))}</option>`),
   ].join('');
 }
 
@@ -671,11 +674,11 @@ export function viewStats(ctx) {
       <div class="grid grid-2">
         <article class="card">
           <header class="card-head"><div><h2>Deep Work</h2><p class="sub">Minuten pro Tag · letzte 14 Tage · Linie = Tagesziel</p></div></header>
-          ${columnChart({ days: stats.days, today: stats.today, kind: 'work', field: 'workMin', unit: 'Min', goal: stats.goals.workMin })}
+          ${columnChart({ days: stats.days, today: stats.today, kind: 'work', field: 'workMin', unit: 'Min', goal: stats.goals.workMin, met: 'workGoal' })}
         </article>
         <article class="card">
           <header class="card-head"><div><h2>Lesen</h2><p class="sub">Seiten pro Tag · letzte 14 Tage · Linie = Tagesziel</p></div></header>
-          ${columnChart({ days: stats.days, today: stats.today, kind: 'read', field: 'readPages', unit: 'Seiten', goal: stats.goals.readPages })}
+          ${columnChart({ days: stats.days, today: stats.today, kind: 'read', field: 'readPages', unit: 'Seiten', goal: stats.goals.readPages, met: 'readGoal' })}
         </article>
       </div>
       <article class="card">
@@ -909,8 +912,8 @@ export function sessionForm(ctx, s, { mode }) {
         <label class="field"><span>Datum</span><input name="day" type="date" value="${esc(s.day || today)}" max="${today}" required /></label>
         <label class="field"><span>Minuten</span><input name="minutes" type="number" inputmode="numeric" min="0" max="1440" step="1" value="${s.minutes ?? ''}" placeholder="z. B. 45" ${mode !== 'timer' ? 'autofocus' : ''} /></label>
       </div>
-      <label class="field only-work"><span>Projekt</span><select name="projectId">${refOptions(ctx, 'work', s.projectId)}</select></label>
-      <label class="field only-read"><span>Buch</span><select name="bookId">${refOptions(ctx, 'read', s.bookId)}</select></label>
+      <label class="field only-work"><span>Projekt</span><select name="projectId">${refOptions(ctx, 'work', s.projectId, { keepDeleted: true })}</select></label>
+      <label class="field only-read"><span>Buch</span><select name="bookId">${refOptions(ctx, 'read', s.bookId, { keepDeleted: true })}</select></label>
       <div class="form-grid only-read">
         <label class="field page-to"><span>Bis Seite</span><input name="toPage" type="number" inputmode="numeric" min="0" step="1" ${mode === 'timer' ? 'autofocus' : ''} /></label>
         <label class="field"><span>Gelesene Seiten</span><input name="pages" type="number" inputmode="numeric" min="0" max="5000" step="1" value="${s.pages ?? ''}" /></label>

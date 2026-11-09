@@ -28,13 +28,15 @@ function niceMax(v) {
   return 10 * exp;
 }
 
-// Tagessäulen der letzten n Tage, eine Serie, optional mit Ziel-Linie.
-export function columnChart({ days, today, n = 14, kind, field, unit, goal = 0 }) {
+// Tagessäulen der letzten n Tage, eine Serie, optional mit Ziel-Linie (heutiges Ziel).
+// met: Feld des Tages, ob sein damaliges Ziel erreicht war (Ziele können sich ändern).
+export function columnChart({ days, today, n = 14, kind, field, unit, goal = 0, met = '' }) {
   const rows = [];
   for (let i = n - 1; i >= 0; i--) {
     const key = addDays(today, -i);
     const d = days.get(key);
-    rows.push({ key, value: d ? Math.round(d[field]) : 0 });
+    const value = d ? Math.round(d[field]) : 0;
+    rows.push({ key, value, met: met ? !!d?.[met] : goal > 0 && value >= goal });
   }
   const max = niceMax(Math.max(goal, ...rows.map((r) => r.value)));
   // Das Ziel steht an der Achse statt im Plot, damit es keine Säule verdeckt;
@@ -46,7 +48,7 @@ export function columnChart({ days, today, n = 14, kind, field, unit, goal = 0 }
   const cols = rows
     .map((r) => {
       const h = (r.value / max) * 100;
-      const label = `${fmtDay(r.key, today)}${goal > 0 && r.value >= goal ? ' · Ziel erreicht' : ''}`;
+      const label = `${fmtDay(r.key, today)}${r.met ? ' · Ziel erreicht' : ''}`;
       return `
         <div class="cc-col${r.key === today ? ' is-today' : ''}" tabindex="0"
           data-tv="${esc(`${fmtNum(r.value)} ${unit}`)}" data-tl="${esc(label)}">
