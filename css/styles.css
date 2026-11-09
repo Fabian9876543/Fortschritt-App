@@ -870,8 +870,127 @@ body.has-mini-timer main {
   text-align: center;
 }
 
-.training-page .card > .btn-sm {
-  margin-top: 8px;
+/* Knopf unter dem Inhalt einer Karte (z. B. „Ohne Projekt zuordnen“) */
+.card-more {
+  margin-top: 14px;
+}
+
+/* Hinweis direkt unter einer Abschnittsüberschrift */
+.lib-hint {
+  margin: -6px 0 0;
+  font-size: 14px;
+}
+
+/* Knopf, der im Fließtext wie ein Link aussieht */
+.btn-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+/* Dialog „Deep Work zuordnen“ */
+.assign-form {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0; /* die Liste darf schrumpfen, Projektwahl und Knöpfe bleiben sichtbar */
+}
+
+.assign-intro {
+  margin: 0;
+  color: var(--text-2);
+}
+
+.assign-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px 12px;
+}
+
+.assign-bar .check {
+  gap: 12px;
+  margin: 0;
+}
+
+.assign-bar .check input {
+  margin: 0;
+}
+
+/* Nimmt den übrigen Platz im Dialog ein und scrollt für sich */
+.assign-list {
+  flex: 1 1 auto;
+  min-height: 150px;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  list-style: none;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  overscroll-behavior: contain;
+}
+
+.assign-list .history-day:first-child {
+  padding-top: 10px;
+}
+
+.assign-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-height: 48px;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.assign-list li:last-child .assign-row {
+  border-bottom: 0;
+}
+
+.assign-row input {
+  flex: none;
+  width: 20px;
+  height: 20px;
+  margin: 0;
+  accent-color: var(--work-strong);
+}
+
+.assign-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.assign-main span {
+  font-size: 13px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+
+.assign-empty {
+  padding: 14px 0;
+  color: var(--text-2);
+}
+
+.assign-done {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--good-text);
+}
+
+.assign-done:empty,
+.assign-form .form-error:empty {
+  display: none;
 }
 
 #phone-timer-card {

@@ -1,7 +1,7 @@
 // Service Worker: macht die App offline-fähig. Strategie "Netzwerk zuerst":
 // online gibt es immer die neueste Version, offline die zuletzt gespeicherte.
 
-const CACHE = 'fortschritt-v1.4.6';
+const CACHE = 'fortschritt-v1.5.0';
 const ASSETS = [
   './',
   './index.html',

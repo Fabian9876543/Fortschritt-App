@@ -32,10 +32,24 @@ import {
   timerElapsed,
   trainingId,
   uid,
+  unassignedWork,
   widgetSummary,
 } from './logic.js';
 import { WIDGET_FILE, pushOnClose, syncWithGist, widgetDataUrl } from './sync.js';
-import { bookForm, projectForm, sessionForm, syncCard, trainingToggles, views, widgetCard } from './views.js';
+import {
+  NEW_PROJECT,
+  assignForm,
+  assignList,
+  assignProjectOptions,
+  bookForm,
+  projectForm,
+  projectLabel,
+  sessionForm,
+  syncCard,
+  trainingToggles,
+  views,
+  widgetCard,
+} from './views.js';
 import {
   $,
   $$,
@@ -59,11 +73,13 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.4.6';
+const VERSION = '1.5.0';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
-const ui = { libraryTab: 'books', historyLimit: 30, trainingWeeks: 6, syncStatus: 'idle', syncError: '', scrollTarget: null };
+const HISTORY_DAYS = 3; // Verlauf in der Statistik: so viele Tage mit Einträgen, frühere auf Knopfdruck
+const TRAINING_WEEKS = 6;
+const ui = { libraryTab: 'books', historyDays: HISTORY_DAYS, trainingWeeks: TRAINING_WEEKS, syncStatus: 'idle', syncError: '', scrollTarget: null };
 let stats = null;
 let timer = store.getTimer();
 let renderedDay = dayKey();
@@ -110,7 +126,7 @@ function render() {
   if (active && document.getElementById(active) && !$('#modal').open) document.getElementById(active).focus();
   renderChrome(ctx);
   updateTimerUI();
-  refreshTrainingDialog?.();
+  refreshDialog?.();
   if (ctx.route === 'erinnerungen') loadWidgetScript().catch(() => {});
 }
 
@@ -499,7 +515,7 @@ function setTraining(day, type, on) {
 }
 
 const pressedTarget = (btn) => btn.getAttribute('aria-pressed') !== 'true';
-let refreshTrainingDialog = null; // hält den offenen Tages-Dialog aktuell (Sync, anderer Tab, Mitternacht)
+let refreshDialog = null; // hält einen offenen Dialog aktuell (Sync, anderer Tab, Mitternacht)
 
 // Training an einem anderen Tag nachtragen oder korrigieren
 function trainingDayDialog(day) {
@@ -520,11 +536,11 @@ function trainingDayDialog(day) {
       if (action === 'training-toggle') setTraining(day, btn.dataset.type, pressedTarget(btn));
     },
     onClose: () => {
-      refreshTrainingDialog = null;
+      refreshDialog = null;
       document.querySelector(`.tc-cell[data-day="${day}"]`)?.focus();
     },
   }));
-  refreshTrainingDialog = fill;
+  refreshDialog = fill;
 }
 
 // ---------------------------------------------------------------- Dialoge
@@ -713,6 +729,89 @@ function projectDialog(id, { then } = {}) {
       return true;
     },
   });
+}
+
+// Deep Work ohne Projekt nachträglich zuordnen. Der Dialog bleibt offen, solange noch etwas
+// ohne Projekt ist – so lassen sich nacheinander mehrere Projekte bedienen.
+function assignDialog() {
+  let form = null;
+  const boxes = () => $$('input[name="s"]', form);
+  const update = () => {
+    const f = form.elements;
+    const all = boxes();
+    const picked = all.filter((b) => b.checked);
+    const min = picked.reduce((sum, b) => sum + Number(b.dataset.min || 0), 0);
+    form.querySelector('[data-out="picked"]').textContent = picked.length ? `${picked.length} ausgewählt · ${fmtMin(min)}` : '';
+    f.pickAll.checked = all.length > 0 && picked.length === all.length;
+    f.pickAll.indeterminate = picked.length > 0 && picked.length < all.length;
+    f.pickAll.disabled = !all.length;
+    form.querySelector('[data-out="new-project"]').hidden = f.projectId.value !== NEW_PROJECT;
+  };
+  // Sync oder anderer Tab: Liste und Projekte neu aufbauen, Auswahl und Häkchen bleiben
+  const fill = () => {
+    if (!form?.isConnected) return;
+    const ctx = context();
+    const checked = new Set(
+      boxes()
+        .filter((b) => b.checked)
+        .map((b) => b.value),
+    );
+    const select = form.elements.projectId;
+    select.innerHTML = assignProjectOptions(ctx, select.value);
+    form.querySelector('[data-out="list"]').innerHTML = assignList(ctx, checked);
+    update();
+  };
+  ({ form } = openModal({
+    title: 'Deep Work zuordnen',
+    body: assignForm(context()),
+    submitLabel: 'Zuordnen',
+    cancelLabel: 'Schließen',
+    onInput: (frm, e) => {
+      form = frm;
+      if (e?.target.name === 'pickAll') for (const b of boxes()) b.checked = e.target.checked;
+      if (e) frm.querySelector('[data-out="error"]').textContent = '';
+      update();
+    },
+    onSubmit: (frm) => {
+      const f = frm.elements;
+      const err = frm.querySelector('[data-out="error"]');
+      const done = frm.querySelector('[data-out="done"]');
+      done.textContent = '';
+      const name = f.newName.value.trim();
+      let projectId = f.projectId.value;
+      if (!projectId) return ((err.textContent = 'Wähle zuerst ein Projekt.'), false);
+      if (projectId === NEW_PROJECT && !name) {
+        err.textContent = 'Wie soll das neue Projekt heißen?';
+        f.newName.focus();
+        return false;
+      }
+      // Nur, was noch ohne Projekt ist – ein anderes Gerät könnte inzwischen zugeordnet haben
+      const open = new Map(unassignedWork(store.getState()).map((s) => [s.id, s]));
+      const picked = boxes()
+        .filter((b) => b.checked)
+        .map((b) => open.get(b.value))
+        .filter(Boolean);
+      if (!picked.length) return ((err.textContent = 'Hake mindestens eine Session an.'), false);
+      if (projectId === NEW_PROJECT) projectId = store.upsert('projects', { name, emoji: '🎯', targetHours: 0, archived: false }).id;
+      store.upsertMany(
+        'sessions',
+        picked.map((s) => ({ ...s, projectId })),
+      );
+      const min = picked.reduce((sum, s) => sum + Math.max(0, Number(s.minutes) || 0), 0);
+      const what = `${picked.length} ${picked.length === 1 ? 'Session' : 'Sessions'} (${fmtMin(min)}) → ${projectLabel(store.getState().projects[projectId])}`;
+      if (!unassignedWork(store.getState()).length) {
+        toast({ icon: '✅', title: 'Alles zugeordnet', text: what });
+        return true;
+      }
+      f.projectId.value = projectId;
+      f.newName.value = '';
+      done.textContent = `✓ ${what}. Weiter mit dem nächsten Projekt – oder schließen.`;
+      update();
+      return false;
+    },
+    onClose: () => (refreshDialog = null),
+  }));
+  refreshDialog = fill;
 }
 
 function logBookDialog(id) {
@@ -1046,9 +1145,10 @@ const actions = {
     render();
   },
   'more-history': () => {
-    ui.historyLimit += 50;
+    ui.historyDays += 7;
     render();
   },
+  'assign-sessions': assignDialog,
   'training-toggle': (el) => setTraining(el.dataset.day, el.dataset.type, pressedTarget(el)),
   'training-day': (el) => trainingDayDialog(el.dataset.day),
   'training-more': () => {
@@ -1187,6 +1287,9 @@ store.subscribe((reason) => {
 window.addEventListener('hashchange', () => {
   armTapGuard(); // Doppeltipp auf einen Link: der zweite Tipp träfe sonst die neue Seite
   closeModal();
+  // Aufgeklappte Listen sind beim nächsten Besuch wieder kurz
+  ui.historyDays = HISTORY_DAYS;
+  ui.trainingWeeks = TRAINING_WEEKS;
   render();
   scrollToTarget();
 });

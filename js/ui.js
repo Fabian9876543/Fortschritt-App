@@ -48,6 +48,7 @@ const dfDate = new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short'
 const dfWd = new Intl.DateTimeFormat('de-DE', { weekday: 'short' });
 const dfMonth = new Intl.DateTimeFormat('de-DE', { month: 'short' });
 const dfDayMonth = new Intl.DateTimeFormat('de-DE', { day: 'numeric', month: 'short' });
+const dfTime = new Intl.DateTimeFormat('de-DE', { hour: '2-digit', minute: '2-digit' });
 
 export function fmtDay(key, today) {
   if (key === today) return 'Heute';
@@ -59,6 +60,7 @@ export const fmtDate = (key) => dfDate.format(parseDay(key));
 export const fmtWeekday = (key) => dfWd.format(parseDay(key)).replace('.', '');
 export const fmtMonth = (key) => dfMonth.format(parseDay(key)).replace('.', '');
 export const fmtDayMonth = (key) => dfDayMonth.format(parseDay(key));
+export const fmtTime = (ts) => dfTime.format(new Date(ts));
 
 export function fmtAgo(ts) {
   const s = Math.round((Date.now() - ts) / 1000);
@@ -144,6 +146,7 @@ export function openModal({
   submitClass = 'btn-primary',
   extra = '',
   cancel = true,
+  cancelLabel = 'Abbrechen',
   onSubmit,
   onInput,
   onAction,
@@ -162,7 +165,7 @@ export function openModal({
       <footer class="modal-foot">
         ${extra}
         <span class="spacer"></span>
-        ${cancel ? '<button type="button" class="btn btn-ghost" data-close>Abbrechen</button>' : ''}
+        ${cancel ? `<button type="button" class="btn btn-ghost" data-close>${esc(cancelLabel)}</button>` : ''}
         ${submitLabel ? `<button type="submit" class="btn ${submitClass}">${esc(submitLabel)}</button>` : ''}
       </footer>
     </form>`;

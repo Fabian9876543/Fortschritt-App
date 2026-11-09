@@ -631,6 +631,11 @@ export function liveSessions(state) {
     .sort(sessionOrder);
 }
 
+// Deep Work ohne (noch vorhandenes) Projekt – dieselbe Abgrenzung wie totals.noProjectMin
+export function unassignedWork(state) {
+  return liveSessions(state).filter((s) => s.kind === 'work' && !(state.projects[s.projectId] && !state.projects[s.projectId].deleted));
+}
+
 // Gelesene Seiten einer Session. Bei „Bis Seite“ (toPage) zählt der Zuwachs gegenüber
 // dem Stand davor – so zählt nichts doppelt, wenn Handy und Laptop dieselben Seiten melden.
 export function readPages(s, before) {

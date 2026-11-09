@@ -61,14 +61,23 @@ export function setProfile(patch) {
 }
 
 export function upsert(collection, record) {
+  return upsertMany(collection, [record])[0];
+}
+
+// Mehrere Datensätze auf einmal – einmal speichern, neu zeichnen und synchronisieren
+export function upsertMany(collection, records) {
+  if (!records.length) return [];
   const now = Date.now();
-  const id = record.id || uid();
-  const prev = state[collection][id];
-  const next = { ...prev, ...record, id, createdAt: prev?.createdAt || now, updatedAt: now };
-  delete next.reset; // eine Änderung ist keine Löschmarke des Zurücksetzens mehr
-  state[collection][id] = next;
+  const saved = records.map((record) => {
+    const id = record.id || uid();
+    const prev = state[collection][id];
+    const next = { ...prev, ...record, id, createdAt: prev?.createdAt || now, updatedAt: now };
+    delete next.reset; // eine Änderung ist keine Löschmarke des Zurücksetzens mehr
+    state[collection][id] = next;
+    return next;
+  });
   commit(collection);
-  return state[collection][id];
+  return saved;
 }
 
 export function remove(collection, id) {

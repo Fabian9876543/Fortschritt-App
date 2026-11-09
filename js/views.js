@@ -15,10 +15,11 @@ import {
   presetMinutes,
   sessionXP,
   startOfWeek,
+  unassignedWork,
   weekTotals,
 } from './logic.js';
 import { barList, columnChart, heatmap, ring } from './charts.js';
-import { esc, fmtAgo, fmtDate, fmtDay, fmtDayMonth, fmtHours, fmtLongDay, fmtMin, fmtMonth, fmtNum } from './ui.js';
+import { esc, fmtAgo, fmtDate, fmtDay, fmtDayMonth, fmtHours, fmtLongDay, fmtMin, fmtMonth, fmtNum, fmtTime } from './ui.js';
 
 // ---------------------------------------------------------------- Hilfen
 
@@ -73,6 +74,9 @@ function sessionDetail(s) {
   if (s.kind === 'work') return fmtMin(s.minutes || 0);
   return [s.pages ? `${fmtNum(s.pages)} Seiten` : '', s.minutes ? fmtMin(s.minutes) : ''].filter(Boolean).join(' · ');
 }
+
+// Neueste zuerst: nach Tag, innerhalb des Tages nach Start- bzw. Eintragszeit
+const newestFirst = (a, b) => (a.day !== b.day ? (a.day < b.day ? 1 : -1) : (b.startedAt || b.createdAt || 0) - (a.startedAt || a.createdAt || 0));
 
 function sessionRow(s, state, { editable = false } = {}) {
   const note = s.note ? ` · „${esc(trunc(s.note))}“` : '';
@@ -346,10 +350,11 @@ export function viewTraining(ctx) {
         <span class="train-count">${s.week}× diese Woche</span>
       </li>`;
   }).join('');
-  // Kalender: neueste Woche oben, ein Tag antippen zum Nachtragen
+  // Kalender: die aktuelle Woche unten, darüber die früheren; ein Tag antippen zum Nachtragen
+  const firstMonday = addDays(startOfWeek(today), -7 * (ui.trainingWeeks - 1));
   const weeks = [];
   for (let w = 0; w < ui.trainingWeeks; w++) {
-    const monday = addDays(startOfWeek(today), -7 * w);
+    const monday = addDays(firstMonday, 7 * w);
     const cells = WEEKDAYS.map((_, i) => {
       const key = addDays(monday, i);
       if (key > today) return '<span class="tc-cell is-future"></span>';
@@ -375,13 +380,12 @@ export function viewTraining(ctx) {
           <ul class="train-list">${overview}</ul>
         </article>
         <article class="card">
-          <header class="card-head"><h2>Kalender</h2></header>
+          <header class="card-head"><h2>Kalender</h2><button id="training-more" class="btn btn-ghost btn-sm" data-action="training-more">Frühere Wochen</button></header>
           <div class="train-cal">
             <div class="tc-week tc-head" aria-hidden="true">${WEEKDAYS.map((d) => `<span>${d}</span>`).join('')}</div>
             ${weeks.join('')}
           </div>
           <p class="hint">Tippe auf einen Tag, um etwas nachzutragen oder zu korrigieren.</p>
-          <button id="training-more" class="btn btn-ghost btn-sm" data-action="training-more">Frühere Wochen</button>
         </article>
       </div>
     </section>`;
@@ -598,6 +602,7 @@ export function viewLibrary(ctx) {
 
   const projectsHtml = `
     <div class="section-head"><h2>Aktive Projekte</h2><button class="btn btn-work btn-sm" data-action="add-project">＋ Projekt</button></div>
+    ${stats.totals.noProjectMin > 0 ? `<p class="hint lib-hint">${esc(fmtHours(stats.totals.noProjectMin))} Deep Work sind noch keinem Projekt zugeordnet. <button class="btn-link" data-action="assign-sessions">Jetzt zuordnen</button></p>` : ''}
     ${projects.length ? `<div class="grid grid-cards">${projects.map((p) => projectCard(p, stats.projects[p.id])).join('')}</div>` : emptyState('🎯', 'Noch kein Projekt', 'Lege an, woran du in deiner Deep-Work-Zeit arbeitest – so siehst du, wo deine Stunden hinfließen.', '<button class="btn btn-work" data-action="add-project">＋ Projekt anlegen</button>')}
     ${archived.length ? `<details class="archived"><summary>Archiviert (${archived.length})</summary><div class="grid grid-cards">${archived.map((p) => projectCard(p, stats.projects[p.id])).join('')}</div></details>` : ''}`;
 
@@ -656,8 +661,10 @@ export function viewStats(ctx) {
   const all = Object.values(state.sessions)
     .filter((s) => !s.deleted && s.day)
     .map((s) => (s.id in stats.pagesBySession ? { ...s, pages: stats.pagesBySession[s.id] } : s))
-    .sort((a, b) => (a.day !== b.day ? (a.day < b.day ? 1 : -1) : (b.startedAt || b.createdAt || 0) - (a.startedAt || a.createdAt || 0)));
-  const shown = all.slice(0, ui.historyLimit);
+    .sort(newestFirst);
+  // Verlauf: nur die jüngsten Tage mit Einträgen, frühere auf Knopfdruck
+  const recentDays = [...new Set(all.map((s) => s.day))].slice(0, ui.historyDays);
+  const shown = all.filter((s) => s.day >= recentDays[recentDays.length - 1]);
   let lastDay = '';
   const history = shown
     .map((s) => {
@@ -693,12 +700,13 @@ export function viewStats(ctx) {
         <article class="card">
           <header class="card-head"><div><h2>Zeit je Projekt</h2><p class="sub">Deep Work gesamt</p></div></header>
           ${projectItems.length ? barList(projectItems, { kind: 'work', format: fmtHours }) : '<p class="muted">Noch keine Deep-Work-Zeit erfasst.</p>'}
+          ${T.noProjectMin > 0 ? '<button class="btn btn-ghost btn-sm card-more" data-action="assign-sessions">Ohne Projekt zuordnen</button>' : ''}
         </article>
       </div>
       <article class="card">
         <header class="card-head"><h2>Verlauf</h2><button class="btn btn-ghost btn-sm" data-action="log-session">＋ Nachtragen</button></header>
         ${all.length ? `<ul class="session-list">${history}</ul>` : '<p class="muted">Noch keine Sessions.</p>'}
-        ${all.length > shown.length ? `<button class="btn btn-ghost full" data-action="more-history">Mehr anzeigen (${all.length - shown.length} weitere)</button>` : ''}
+        ${all.length > shown.length ? '<button class="btn btn-ghost full" data-action="more-history">Frühere Tage anzeigen</button>' : ''}
       </article>
     </section>`;
 }
@@ -891,6 +899,65 @@ export function viewSettings(ctx) {
       </article>
       <p class="hint center">Fortschritt · Version ${esc(ctx.version)}</p>
     </section>`;
+}
+
+// ---------------------------------------------------------------- Deep Work zuordnen
+
+export const NEW_PROJECT = '+neu'; // Auswahl „Neues Projekt“ (keine gültige Projekt-ID)
+
+// Aktive Projekte, darunter archivierte – alte Sessions gehören oft zu einem abgeschlossenen
+export function assignProjectOptions(ctx, selected = '') {
+  const { state, stats } = ctx;
+  const active = activeProjects(state, stats);
+  const archived = Object.values(state.projects).filter((p) => !p.deleted && p.archived);
+  const any = active.length + archived.length > 0;
+  const opt = (p) => `<option value="${esc(p.id)}" ${p.id === selected ? 'selected' : ''}>${esc(projectLabel(p))}</option>`;
+  return [
+    any ? '<option value="">Projekt wählen …</option>' : '',
+    ...active.map(opt),
+    archived.length ? `<optgroup label="Archiviert">${archived.map(opt).join('')}</optgroup>` : '',
+    `<option value="${NEW_PROJECT}" ${selected === NEW_PROJECT || !any ? 'selected' : ''}>＋ Neues Projekt …</option>`,
+  ].join('');
+}
+
+// Deep-Work-Sessions ohne Projekt zum Anhaken, nach Tagen gruppiert, die neuesten oben
+export function assignList(ctx, checked = new Set()) {
+  const { state, stats } = ctx;
+  const list = unassignedWork(state).sort(newestFirst);
+  if (!list.length) return '<li class="assign-empty">Alles ist einem Projekt zugeordnet ✓</li>';
+  let lastDay = '';
+  return list
+    .map((s) => {
+      const head = s.day !== lastDay ? `<li class="history-day">${esc(fmtDay(s.day, stats.today))}</li>` : '';
+      lastDay = s.day;
+      const old = state.projects[s.projectId]; // gibt es nur noch als gelöschtes
+      const meta = [s.startedAt ? `ab ${fmtTime(s.startedAt)}` : '', old ? `früher ${projectLabel(old)} (gelöscht)` : '', s.note ? `„${trunc(s.note)}“` : '']
+        .filter(Boolean)
+        .join(' · ');
+      const min = Math.max(0, Number(s.minutes) || 0);
+      return `${head}
+        <li><label class="assign-row">
+          <input type="checkbox" name="s" value="${esc(s.id)}" data-min="${min}" ${checked.has(s.id) ? 'checked' : ''} />
+          <span class="assign-main"><strong>${esc(fmtMin(min))}</strong>${meta ? `<span>${esc(meta)}</span>` : ''}</span>
+        </label></li>`;
+    })
+    .join('');
+}
+
+export function assignForm(ctx) {
+  return `
+    <div class="assign-form">
+      <p class="assign-intro">Wähle ein Projekt und hake die Sessions an, die dazugehören.</p>
+      <label class="field"><span>Projekt</span><select name="projectId">${assignProjectOptions(ctx)}</select></label>
+      <label class="field" data-out="new-project"><span>Name des neuen Projekts</span><input name="newName" type="text" maxlength="80" placeholder="z. B. Bachelorarbeit" /></label>
+      <div class="assign-bar">
+        <label class="check"><input type="checkbox" name="pickAll" /> Alle auswählen</label>
+        <span class="muted" data-out="picked"></span>
+      </div>
+      <ul class="assign-list" data-out="list">${assignList(ctx)}</ul>
+      <p class="assign-done" data-out="done" role="status"></p>
+      <p class="form-error" data-out="error" role="alert"></p>
+    </div>`;
 }
 
 // ---------------------------------------------------------------- Formulare

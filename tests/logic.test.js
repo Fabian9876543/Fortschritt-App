@@ -35,6 +35,7 @@ import {
   TIMER_PRESETS,
   trainingId,
   trainingStats,
+  unassignedWork,
   walkStreak,
   weekTotals,
   xpForLevel,
@@ -537,4 +538,40 @@ test('Beim Schließen: nur die Änderungen seit dem letzten Abgleich, zusammenf�
   assert.deepEqual(Object.keys(merged.sessions).sort(), [sid, 'handy', 'neu'].sort());
   const { goals, name, reminders } = normalizeState(remote).profile;
   assert.deepEqual({ goals: merged.profile.goals, name: merged.profile.name, reminders: merged.profile.reminders }, { goals, name, reminders });
+});
+
+test('Deep Work ohne Projekt: genau die Sessions, die als „Ohne Projekt“ zählen', () => {
+  const st = stateWith(
+    [
+      session('2026-11-02', { kind: 'work', minutes: 30 }),
+      session('2026-11-03', { kind: 'work', minutes: 45, projectId: 'p1' }),
+      session('2026-11-04', { kind: 'work', minutes: 20, projectId: 'alt' }),
+      session('2026-11-05', { kind: 'work', minutes: 15, projectId: 'fehlt' }),
+      session('2026-11-06', { kind: 'work', minutes: 50, projectId: 'arch' }),
+      session('2026-11-07', { kind: 'work', minutes: 25, deleted: true }),
+      session('2026-11-08', { kind: 'read', pages: 10, minutes: 12 }),
+    ],
+    {
+      projects: {
+        p1: { id: 'p1', name: 'Bachelorarbeit', updatedAt: 1 },
+        alt: { id: 'alt', name: 'Weg', deleted: true, updatedAt: 1 },
+        arch: { id: 'arch', name: 'Fertig', archived: true, updatedAt: 1 },
+      },
+    },
+  );
+  const open = unassignedWork(st);
+  assert.deepEqual(
+    open.map((s) => s.minutes),
+    [30, 20, 15],
+  );
+  assert.equal(
+    open.reduce((sum, s) => sum + s.minutes, 0),
+    computeStats(st, '2026-11-09').totals.noProjectMin,
+  );
+  // Zugeordnet: zählt beim Projekt, nicht mehr als „Ohne Projekt“
+  for (const s of open) st.sessions[s.id] = { ...s, projectId: 'p1' };
+  const stats = computeStats(st, '2026-11-09');
+  assert.equal(unassignedWork(st).length, 0);
+  assert.equal(stats.totals.noProjectMin, 0);
+  assert.equal(stats.projects.p1.minutes, 45 + 30 + 20 + 15);
 });

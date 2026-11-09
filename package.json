@@ -1,7 +1,7 @@
 {
   "name": "fortschritt-app",
   "private": true,
-  "version": "1.4.6",
+  "version": "1.5.0",
   "description": "Gamifizierter Fortschritts-Tracker für Lesen und Deep Work (PWA)",
   "type": "module",
   "scripts": {

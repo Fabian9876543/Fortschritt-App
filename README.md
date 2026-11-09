@@ -12,10 +12,10 @@ Läuft auf **Laptop und Handy**, lässt sich wie eine normale App installieren, 
 
 - **Fokus-Timer** – Deep Work frei oder mit 25 / 50 / 90 Minuten, Lesen frei oder mit 15 / 30 / 60 Minuten. Bei 00:00 klingelt ein Wecker (Antippen stellt ihn ab), danach: XP einsammeln, +5 Min oder ohne Limit weitermachen. Die Zeit läuft auch weiter, wenn du die App schließt – klingeln kann der Wecker aber nur bei geöffneter App. Auf dem iPhone stellt sie deshalb auf Wunsch zusätzlich den echten iPhone-Timer, der auch bei gesperrtem Handy klingelt.
 - **Bücher** mit Seitenzahl und Fortschrittsbalken („noch 120 Seiten – ca. 6 Tage bei deinem Ziel“).
-- **Projekte** für deine Deep-Work-Zeit, optional mit Stundenziel.
-- **Training** – Oberkörper, Unterkörper, Bauch + unterer Rücken und Laufen mit einem Tipp abhaken, mit Kalender und „zuletzt vor 3 Tagen“. Nur zum Überblick, zählt nicht für XP.
+- **Projekte** für deine Deep-Work-Zeit, optional mit Stundenziel. Deep Work ohne Projekt lässt sich nachträglich zuordnen (Statistik → „Zeit je Projekt“ → „Ohne Projekt zuordnen“).
+- **Training** – Oberkörper, Unterkörper, Bauch + unterer Rücken und Laufen mit einem Tipp abhaken, mit Kalender (die aktuelle Woche unten) und „zuletzt vor 3 Tagen“. Nur zum Überblick, zählt nicht für XP.
 - **Tagesziele** (Standard: 60 Min Deep Work, 20 Seiten) als Fortschrittsringe.
-- **Statistik**: Säulendiagramme der letzten 14 Tage, Aktivitäts-Heatmap, Wochenvergleich, Zeit je Projekt, kompletter Verlauf.
+- **Statistik**: Säulendiagramme der letzten 14 Tage, Aktivitäts-Heatmap, Wochenvergleich, Zeit je Projekt, Verlauf der letzten Tage (ältere auf Knopfdruck).
 - **Sync zwischen Laptop und Handy** über ein geheimes GitHub-Gist (optional).
 - **Smarte Erinnerungen** (Fokus-Start, Lesezeit, Streak-Retter) – sie kommen nur, wenn das Ziel an dem Tag noch offen ist.
 - **iPhone-Widget** für Home- und Sperrbildschirm mit Level, Streak und Tageszielen.
