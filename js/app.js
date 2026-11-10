@@ -73,7 +73,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.5.0';
+const VERSION = '1.5.1';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
@@ -668,7 +668,9 @@ function bookDialog(id, { then } = {}) {
         okLabel: 'Löschen',
         danger: true,
       });
-      if (ok) store.remove('books', book.id);
+      if (!ok) return;
+      store.remove('books', book.id);
+      toast({ icon: '🗑️', title: 'Buch gelöscht', text: `„${book.title}“` });
     },
     onSubmit: (form) => {
       const f = form.elements;
@@ -702,12 +704,13 @@ function projectDialog(id, { then } = {}) {
     onAction: async (action) => {
       if (action !== 'delete') return;
       closeModal();
-      const ok = await confirmDialog('Das Projekt wird entfernt. Die erfassten Stunden und XP bleiben erhalten.', {
-        title: `„${project.name}“ löschen?`,
-        okLabel: 'Löschen',
-        danger: true,
-      });
-      if (ok) store.remove('projects', project.id);
+      const ok = await confirmDialog(
+        'Deine Stunden und XP bleiben erhalten. Die Sessions zählen dann als „Ohne Projekt“ – du kannst sie in der Statistik einem anderen Projekt zuordnen.',
+        { title: `„${project.name}“ löschen?`, okLabel: 'Löschen', danger: true },
+      );
+      if (!ok) return;
+      store.remove('projects', project.id);
+      toast({ icon: '🗑️', title: 'Projekt gelöscht', text: `„${project.name}“` });
     },
     onSubmit: (form) => {
       const f = form.elements;
@@ -1144,6 +1147,12 @@ const actions = {
     ui.libraryTab = el.dataset.tab;
     render();
   },
+  // Aus der Statistik zu den Projekten (bearbeiten, umbenennen, löschen)
+  'manage-projects': () => {
+    ui.libraryTab = 'projects';
+    if (route() === 'bibliothek') render();
+    else location.hash = '#/bibliothek';
+  },
   'more-history': () => {
     ui.historyDays += 7;
     render();
@@ -1219,6 +1228,7 @@ document.addEventListener('change', (e) => {
   if (el.dataset.change === 'focus-ref') {
     const f = store.getPrefs().focus;
     store.setPrefs({ focus: { ...f, [f.kind === 'read' ? 'readRef' : 'workRef']: el.value } });
+    render(); // „✎ … bearbeiten“ unter der Auswahl gehört zum neu gewählten Projekt bzw. Buch
   } else if (el.dataset.rem) {
     const field = el.dataset.field;
     updateReminder(el.dataset.rem, (r) => ({ ...r, [field]: field === 'enabled' ? el.checked : el.value || r.time }));

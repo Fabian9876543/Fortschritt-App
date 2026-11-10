@@ -881,17 +881,10 @@ body.has-mini-timer main {
   font-size: 14px;
 }
 
-/* Knopf, der im Fließtext wie ein Link aussieht */
-.btn-link {
-  padding: 0;
-  border: 0;
-  background: none;
-  color: var(--text);
-  font: inherit;
-  font-weight: 600;
-  text-decoration: underline;
-  text-underline-offset: 2px;
-  cursor: pointer;
+/* „✎ Projekt bearbeiten oder löschen“ direkt unter der Auswahl auf der Fokus-Seite */
+.focus-setup .ref-edit {
+  align-self: flex-start;
+  margin: -14px 0 -8px -8px;
 }
 
 /* Dialog „Deep Work zuordnen“ */
@@ -1965,8 +1958,13 @@ body.has-mini-timer main {
   gap: 8px;
 }
 
+/* Als Knopf erkennbar, nicht nur als blasses Symbol */
 .card-actions .icon-btn {
+  width: 36px;
+  height: 36px;
   margin-left: auto;
+  border: 1px solid var(--border-strong);
+  color: var(--text);
 }
 
 .project-emoji {

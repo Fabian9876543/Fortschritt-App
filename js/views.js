@@ -419,11 +419,12 @@ export function refOptions(ctx, kind, selected, { keepDeleted = false } = {}) {
 }
 
 export function viewFocus(ctx) {
-  const { prefs, timer, stats } = ctx;
+  const { prefs, timer, stats, state } = ctx;
   if (timer) return viewTimer(ctx);
   const f = prefs.focus;
   const kind = f.kind === 'read' ? 'read' : 'work';
   const ref = kind === 'work' ? f.workRef : f.readRef;
+  const picked = ref ? (kind === 'work' ? state.projects[ref] : state.books[ref]) : null;
   const presets = TIMER_PRESETS[kind].options;
   const minutes = presetMinutes(f, kind);
   const t = stats.todayAgg;
@@ -451,6 +452,11 @@ export function viewFocus(ctx) {
             <button class="btn btn-ghost" data-action="${kind === 'work' ? 'add-project' : 'add-book'}" data-then="focus">＋ Neu</button>
           </div>
         </label>
+        ${
+          picked && !picked.deleted
+            ? `<button class="link-btn ref-edit" data-action="${kind === 'work' ? 'edit-project' : 'edit-book'}" data-id="${esc(picked.id)}">✎ ${kind === 'work' ? 'Projekt' : 'Buch'} bearbeiten oder löschen</button>`
+            : ''
+        }
         <div class="field">
           <span>Dauer</span>
           <div class="chips" role="radiogroup" aria-label="Dauer">
@@ -582,7 +588,7 @@ function projectCard(p, ps) {
       </div>
       <div class="card-actions">
         ${p.archived ? '' : `<button class="btn btn-work btn-sm" data-action="start-project" data-id="${esc(p.id)}">▶ Fokus</button>`}
-        <button class="icon-btn" data-action="edit-project" data-id="${esc(p.id)}" aria-label="${esc(`${p.name} bearbeiten`)}">✎</button>
+        <button class="btn btn-ghost btn-sm" data-action="edit-project" data-id="${esc(p.id)}" aria-label="${esc(`Bearbeiten: ${p.name}`)}">✎ Bearbeiten</button>
       </div>
     </article>`;
 }
@@ -602,7 +608,7 @@ export function viewLibrary(ctx) {
 
   const projectsHtml = `
     <div class="section-head"><h2>Aktive Projekte</h2><button class="btn btn-work btn-sm" data-action="add-project">＋ Projekt</button></div>
-    ${stats.totals.noProjectMin > 0 ? `<p class="hint lib-hint">${esc(fmtHours(stats.totals.noProjectMin))} Deep Work sind noch keinem Projekt zugeordnet. <button class="btn-link" data-action="assign-sessions">Jetzt zuordnen</button></p>` : ''}
+    ${stats.totals.noProjectMin > 0 ? `<p class="hint lib-hint">${esc(fmtHours(stats.totals.noProjectMin))} Deep Work sind noch keinem Projekt zugeordnet. <button class="link-btn inline" data-action="assign-sessions">Jetzt zuordnen</button></p>` : ''}
     ${projects.length ? `<div class="grid grid-cards">${projects.map((p) => projectCard(p, stats.projects[p.id])).join('')}</div>` : emptyState('🎯', 'Noch kein Projekt', 'Lege an, woran du in deiner Deep-Work-Zeit arbeitest – so siehst du, wo deine Stunden hinfließen.', '<button class="btn btn-work" data-action="add-project">＋ Projekt anlegen</button>')}
     ${archived.length ? `<details class="archived"><summary>Archiviert (${archived.length})</summary><div class="grid grid-cards">${archived.map((p) => projectCard(p, stats.projects[p.id])).join('')}</div></details>` : ''}`;
 
@@ -698,7 +704,7 @@ export function viewStats(ctx) {
           ${weekCompare(week)}
         </article>
         <article class="card">
-          <header class="card-head"><div><h2>Zeit je Projekt</h2><p class="sub">Deep Work gesamt</p></div></header>
+          <header class="card-head"><div><h2>Zeit je Projekt</h2><p class="sub">Deep Work gesamt</p></div><a href="#/bibliothek" class="link" data-action="manage-projects">Verwalten</a></header>
           ${projectItems.length ? barList(projectItems, { kind: 'work', format: fmtHours }) : '<p class="muted">Noch keine Deep-Work-Zeit erfasst.</p>'}
           ${T.noProjectMin > 0 ? '<button class="btn btn-ghost btn-sm card-more" data-action="assign-sessions">Ohne Projekt zuordnen</button>' : ''}
         </article>
@@ -979,8 +985,8 @@ export function sessionForm(ctx, s, { mode }) {
         <label class="field"><span>Datum</span><input name="day" type="date" value="${esc(s.day || today)}" max="${today}" required /></label>
         <label class="field"><span>Minuten</span><input name="minutes" type="number" inputmode="numeric" min="0" max="1440" step="1" value="${s.minutes ?? ''}" placeholder="z. B. 45" ${mode !== 'timer' ? 'autofocus' : ''} /></label>
       </div>
-      <label class="field only-work"><span>Projekt</span><select name="projectId">${refOptions(ctx, 'work', s.projectId, { keepDeleted: true })}</select></label>
-      <label class="field only-read"><span>Buch</span><select name="bookId">${refOptions(ctx, 'read', s.bookId, { keepDeleted: true })}</select></label>
+      <label class="field only-work"><span>Projekt</span><select name="projectId">${refOptions(ctx, 'work', s.projectId, { keepDeleted: mode === 'edit' })}</select></label>
+      <label class="field only-read"><span>Buch</span><select name="bookId">${refOptions(ctx, 'read', s.bookId, { keepDeleted: mode === 'edit' })}</select></label>
       <div class="form-grid only-read">
         <label class="field page-to"><span>Bis Seite</span><input name="toPage" type="number" inputmode="numeric" min="0" step="1" ${mode === 'timer' ? 'autofocus' : ''} /></label>
         <label class="field"><span>Gelesene Seiten</span><input name="pages" type="number" inputmode="numeric" min="0" max="5000" step="1" value="${s.pages ?? ''}" /></label>
