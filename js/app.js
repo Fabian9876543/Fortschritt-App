@@ -42,6 +42,7 @@ import {
   assignList,
   assignProjectOptions,
   bookForm,
+  liveQuestText,
   projectForm,
   projectLabel,
   sessionForm,
@@ -73,7 +74,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.5.1';
+const VERSION = '1.5.2';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 const ROUTES = Object.keys(views);
@@ -416,6 +417,17 @@ function updateTimerUI() {
   const expired = !!timer.expired;
   const clock = fmtClock(countdown ? Math.ceil(Math.max(0, target - ms) / 1000) * 1000 : ms);
   const xp = sessionXP({ kind: timer.kind, minutes: Math.floor(ms / 60000), pages: 0 });
+
+  // „Am Stück“-Quests auf der Heute-Seite: Stand der laufenden Session
+  for (const el of $$('[data-live-quest]')) {
+    const goal = Number(el.dataset.liveQuest);
+    const min = Math.floor(ms / 60000);
+    const pct = Math.round(Math.min(1, min / goal) * 100);
+    const bar = el.querySelector('.progress');
+    bar.setAttribute('aria-valuenow', pct);
+    bar.firstElementChild.style.width = `${pct}%`;
+    el.querySelector('.quest-live-text').textContent = liveQuestText(min, goal);
+  }
 
   const time = $('#timer-time');
   if (time) {

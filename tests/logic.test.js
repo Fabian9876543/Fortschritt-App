@@ -575,3 +575,23 @@ test('Deep Work ohne Projekt: genau die Sessions, die als „Ohne Projekt“ zä
   assert.equal(stats.totals.noProjectMin, 0);
   assert.equal(stats.projects.p1.minutes, 45 + 30 + 20 + 15);
 });
+
+test('„Am Stück“-Quests: nur die längste Session zählt, und sie sind dafür markiert', () => {
+  const seen = new Set();
+  for (let i = 0; i < 120; i++) {
+    const day = addDays('2026-11-16', i);
+    const st = stateWith([
+      session(day, { kind: 'work', minutes: 30 }),
+      session(day, { kind: 'work', minutes: 30 }),
+      session(day, { kind: 'read', minutes: 20, pages: 10 }),
+    ]);
+    for (const q of computeStats(st, day).todayAgg.quests) {
+      seen.add(q.id);
+      const single = { deep45: 'work', deep90: 'work', read30: 'read' }[q.id] || null;
+      assert.equal(q.single, single, q.id);
+      if (q.id === 'deep45') assert.deepEqual([q.value, q.done], [30, false]); // 2 × 30 Min ergeben keine 45 am Stück
+      if (q.id === 'read30') assert.deepEqual([q.value, q.done], [20, false]);
+    }
+  }
+  for (const id of ['deep45', 'deep90', 'read30']) assert.ok(seen.has(id), id);
+});

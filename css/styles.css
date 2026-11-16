@@ -1545,6 +1545,14 @@ body.has-mini-timer main {
   margin: 6px 0 0;
 }
 
+/* „Am Stück“-Quest während einer laufenden Session */
+.quest-live-text {
+  display: block;
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
 .quest-xp {
   padding: 4px 8px;
   border-radius: 999px;

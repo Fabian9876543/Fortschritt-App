@@ -11,10 +11,12 @@ import {
   FREEZE_EVERY,
   FREEZE_MAX,
   addDays,
+  dayKey,
   daysBetween,
   presetMinutes,
   sessionXP,
   startOfWeek,
+  timerElapsed,
   unassignedWork,
   weekTotals,
 } from './logic.js';
@@ -192,7 +194,25 @@ function ringItem({ kind, value, goal, unit, label, streak }) {
     </div>`;
 }
 
-function questList(quests) {
+// Geschützte Leerzeichen: Auf schmalen Displays bricht die Zeile nach dem Doppelpunkt um
+export function liveQuestText(min, target) {
+  return min < target ? `Laufende Session: ${min}\u00a0von\u00a0${target}\u00a0Min` : `Laufende Session: ${min}\u00a0Min ✓ – zählt nach dem Speichern`;
+}
+
+// Fortschritt einer Quest. „Am Stück“-Quests (single) erfüllt nur eine einzelne Session –
+// die bisher längste als Balken täuschte Fortschritt vor, denn die nächste beginnt wieder
+// bei 0. Darum zeigen sie nur den Stand einer gerade laufenden Session (live, siehe app.js).
+function questProgress(q, timer, today) {
+  if (q.done) return '';
+  if (q.single) {
+    if (!timer || timer.kind !== q.single || dayKey(new Date(timer.startedAt)) !== today) return '';
+    const min = Math.floor(timerElapsed(timer) / 60000);
+    return `<div class="quest-live" data-live-quest="${q.target}">${progressBar(min / q.target, 'xp', `${q.title}: laufende Session`)}<span class="quest-live-text">${liveQuestText(min, q.target)}</span></div>`;
+  }
+  return q.target > 1 ? progressBar(q.value / q.target, 'xp', q.title) : '';
+}
+
+function questList(quests, timer, today) {
   return `<ul class="quest-list">${quests
     .map(
       (q) => `
@@ -201,7 +221,7 @@ function questList(quests) {
         <div class="quest-main">
           <div class="quest-title">${esc(q.title)}</div>
           <div class="quest-desc">${esc(q.desc)}</div>
-          ${q.target > 1 && !q.done ? progressBar(q.value / q.target, 'xp', q.title) : ''}
+          ${questProgress(q, timer, today)}
         </div>
         <span class="quest-xp">+${q.xp} XP</span>
       </li>`,
@@ -290,7 +310,7 @@ export function viewToday(ctx) {
         ${trainingCard(stats)}
         <article class="card">
           <header class="card-head"><h2>Tages-Quests</h2><span class="muted">${questsDone}/${t.quests.length}</span></header>
-          ${questList(t.quests)}
+          ${questList(t.quests, timer, stats.today)}
           <p class="hint">Jeden Tag gibt es neue Quests.</p>
         </article>
         ${continueCard(state, stats)}

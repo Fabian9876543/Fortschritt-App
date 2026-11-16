@@ -420,6 +420,7 @@ const QUEST_POOL = [
     xp: 20,
     needs: 'work',
     desc: () => 'Eine Fokus-Session mit mind. 45 Min am Stück',
+    single: 'work', // zählt nur eine einzelne Session – Teilstände summieren sich nicht
     progress: (d) => [d.maxWork, 45],
   },
   {
@@ -430,6 +431,7 @@ const QUEST_POOL = [
     needs: 'work',
     weight: 0.5,
     desc: () => 'Eine Fokus-Session mit mind. 90 Min am Stück',
+    single: 'work',
     progress: (d) => [d.maxWork, 90],
   },
   {
@@ -466,6 +468,7 @@ const QUEST_POOL = [
     xp: 20,
     needs: 'read',
     desc: () => '30 Min am Stück lesen',
+    single: 'read',
     progress: (d) => [d.maxRead, 30],
   },
   {
@@ -559,6 +562,7 @@ function evalQuests(key, day, goals) {
       value: Math.min(value, target),
       target,
       done: value >= target,
+      single: q.single || null,
     };
   });
 }
