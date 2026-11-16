@@ -26,10 +26,13 @@ async function fetchWithTimeout(url, options = {}) {
   }
 }
 
+// setup: Token oder Gist-ID selbst taugen nicht (ungültig, keine Gist-Rechte, Gist fehlt) –
+// im Gegensatz zu vorübergehenden Fehlern (Netz, Zeitlimit, GitHub-Limit), die sich von selbst geben.
 export class SyncError extends Error {
-  constructor(message, status) {
+  constructor(message, status, { setup = false } = {}) {
     super(message);
     this.status = status;
+    this.setup = setup;
   }
 }
 
@@ -48,12 +51,12 @@ async function request(path, token, options = {}) {
   } catch {
     throw new SyncError('Keine Verbindung – Sync später erneut.', 0);
   }
-  if (res.status === 401) throw new SyncError('Token ungültig oder abgelaufen.', 401);
+  if (res.status === 401) throw new SyncError('Token ungültig oder abgelaufen.', 401, { setup: true });
   if (res.status === 429 || (res.status === 403 && res.headers.get('x-ratelimit-remaining') === '0')) {
     throw new SyncError('GitHub-Limit erreicht – Sync später erneut.', res.status);
   }
-  if (res.status === 403) throw new SyncError('Zugriff verweigert – hat der Token Gist-Rechte?', 403);
-  if (res.status === 404) throw new SyncError('Gist nicht gefunden.', 404);
+  if (res.status === 403) throw new SyncError('Zugriff verweigert – hat der Token Gist-Rechte?', 403, { setup: true });
+  if (res.status === 404) throw new SyncError('Gist nicht gefunden.', 404, { setup: true });
   if (!res.ok) throw new SyncError(`GitHub-Fehler (${res.status}).`, res.status);
   return res.json();
 }

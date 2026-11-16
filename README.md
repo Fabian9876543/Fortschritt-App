@@ -52,17 +52,18 @@ Alle XP werden aus deinen Sessions berechnet. Wenn du eine Session korrigierst o
 
 - **iPhone / iPad (Safari):** Seite öffnen → Teilen-Symbol → „Zum Home-Bildschirm“.
 - **Android (Chrome):** Seite öffnen → Menü ⋮ → „App installieren“.
+- **Mac (Safari):** Seite öffnen → Menü Ablage → „Zum Dock hinzufügen …“. Empfohlen: Im normalen Safari-Tab löscht Safari die Daten einer Website (auch den Sync-Token), wenn du sie eine Woche lang nicht öffnest – als App im Dock hat Fortschritt einen eigenen Speicher.
 - **Laptop (Chrome / Edge):** Installations-Symbol rechts in der Adressleiste. Funktioniert aber auch einfach als Lesezeichen.
 
 ### 3. Sync einrichten (damit beide Geräte denselben Stand haben)
 
 Ohne Sync liegen die Daten nur auf dem jeweiligen Gerät. Für den Abgleich:
 
-1. Auf GitHub einen Token erstellen: [Token mit Gist-Recht anlegen](https://github.com/settings/tokens/new?scopes=gist&description=Fortschritt-App) – nur das Häkchen bei `gist` setzen.
+1. Auf GitHub einen Token erstellen: [Token mit Gist-Recht anlegen](https://github.com/settings/tokens/new?scopes=gist&description=Fortschritt-App) – nur das Häkchen bei `gist` setzen. Läuft der Token ab, brauchst du auf allen Geräten einen neuen; wähl das Ablaufdatum also bewusst (oder „No expiration“). Heb den Token auf (z. B. im Passwort-Manager) – GitHub zeigt ihn nur einmal.
 2. In der App unter **Einstellungen → Sync** den Token einfügen und „Verbinden“ drücken.
 3. Auf dem zweiten Gerät genau dasselbe. Fertig – ab dann wird bei jeder Änderung und beim Öffnen der App automatisch abgeglichen.
 
-Die Daten landen in einem *geheimen* Gist in deinem GitHub-Account (nicht öffentlich gelistet). Der Token bleibt auf dem Gerät und wird nur an `api.github.com` geschickt. Änderungen von beiden Geräten werden zusammengeführt – auch wenn du auf einem Gerät offline warst.
+Die Daten landen in einem *geheimen* Gist in deinem GitHub-Account (nicht öffentlich gelistet). Der Token bleibt auf dem Gerät – genauer: in dem Browser bzw. der installierten App, in der du ihn eingegeben hast – und wird nur an `api.github.com` geschickt. In einem anderen Browser musst du ihn deshalb noch einmal eintragen. Änderungen von beiden Geräten werden zusammengeführt – auch wenn du auf einem Gerät offline warst.
 
 Der Punkt oben in der App zeigt den Stand: **grün** = abgeglichen, **gelb** = Änderungen werden gleich hochgeladen, **rot** = Fehler (Maus drüber bzw. Einstellungen → Sync zeigt, welcher), **grauer Ring** = seit dem Öffnen noch nicht abgeglichen.
 

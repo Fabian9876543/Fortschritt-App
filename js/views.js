@@ -791,6 +791,24 @@ export function viewAchievements(ctx) {
 
 // ---------------------------------------------------------------- Einstellungen
 
+const TOKEN_URL = 'https://github.com/settings/tokens/new?scopes=gist&description=Fortschritt-App';
+
+// Safari löscht die Daten einer Website nach einer Woche ohne Besuch – auch den Token.
+// Als installierte App (Dock bzw. Home-Bildschirm) hat Fortschritt einen eigenen Speicher.
+function safariHint(ctx) {
+  return ctx.safariTab
+    ? '<p class="hint">🧭 Safari löscht die Daten einer Website, wenn du sie eine Woche lang nicht öffnest – auch den Token. Installiert (Mac: Ablage → „Zum Dock hinzufügen“, iPhone: Teilen → „Zum Home-Bildschirm“) hat Fortschritt einen eigenen Speicher.</p>'
+    : '';
+}
+
+// Was tun, wenn Token oder Gist selbst nicht (mehr) taugen – z. B. Token abgelaufen
+function syncFix(ui) {
+  if (ui.syncStatus !== 'error' || !ui.syncErrorSetup) return '';
+  if (ui.syncErrorStatus === 404)
+    return '<p class="small">Tippe auf <strong>Trennen</strong> und verbinde dich neu – die App sucht dein Daten-Gist dann wieder.</p>';
+  return `<p class="small">So behebst du es: <a href="${TOKEN_URL}" target="_blank" rel="noopener">neuen Token erstellen</a>, hier auf <strong>Trennen</strong> tippen und mit dem neuen Token verbinden. Deine Daten bleiben erhalten – auf deinen anderen Geräten genauso vorgehen.</p>`;
+}
+
 export function syncCard(ctx) {
   const sync = ctx.prefs.sync;
   const { ui } = ctx;
@@ -807,11 +825,13 @@ export function syncCard(ctx) {
       <article class="card" id="sync-card">
         <header class="card-head"><h2>☁️ Sync zwischen deinen Geräten</h2></header>
         <p class="sync-status ${ui.syncStatus === 'error' ? 'is-error' : ''}">${status}</p>
+        ${syncFix(ui)}
         ${sync.gistId ? `<p class="muted small">Gist-ID: <code>${esc(sync.gistId)}</code> – auf dem anderen Gerät reicht derselbe Token, die ID wird automatisch gefunden.</p>` : ''}
         <div class="row-actions">
           <button class="btn btn-primary" data-action="sync-now">Jetzt synchronisieren</button>
           <button class="btn btn-ghost" data-action="sync-disconnect">Trennen</button>
         </div>
+        ${safariHint(ctx)}
       </article>`;
   }
   return `
@@ -819,16 +839,18 @@ export function syncCard(ctx) {
       <header class="card-head"><h2>☁️ Sync zwischen Laptop & Handy</h2></header>
       <p>Deine Daten liegen zunächst nur auf diesem Gerät. Damit Laptop und Handy denselben Stand haben, speichert die App eine Kopie in einem <strong>geheimen GitHub-Gist</strong> – nicht öffentlich gelistet und nur über deinen Account bzw. den genauen Link erreichbar.</p>
       <ol class="small-steps">
-        <li><a href="https://github.com/settings/tokens/new?scopes=gist&description=Fortschritt-App" target="_blank" rel="noopener">Token auf GitHub erstellen</a> – nur das Häkchen bei <code>gist</code> setzen, Ablaufdatum nach Wunsch.</li>
-        <li>Token hier einfügen und verbinden.</li>
-        <li>Auf dem anderen Gerät genau dasselbe – fertig. Ab dann wird automatisch synchronisiert.</li>
+        <li><a href="${TOKEN_URL}" target="_blank" rel="noopener">Token auf GitHub erstellen</a> – nur das Häkchen bei <code>gist</code> setzen. Läuft der Token ab, brauchst du auf allen Geräten einen neuen – wähl das Ablaufdatum also bewusst (oder „No expiration“).</li>
+        <li>Token hier einfügen und verbinden. Heb ihn auf, z. B. im Passwort-Manager – GitHub zeigt ihn nur ein einziges Mal.</li>
+        <li>Auf dem anderen Gerät genau dasselbe, mit demselben Token – fertig. Ab dann wird automatisch synchronisiert.</li>
       </ol>
       <form class="stack" data-form="sync-connect">
         <label class="field"><span>GitHub-Token</span><input name="token" type="password" autocomplete="off" placeholder="ghp_…" required /></label>
         <label class="field"><span>Gist-ID <small class="muted">(optional, wird sonst automatisch gefunden)</small></span><input name="gistId" type="text" autocomplete="off" /></label>
+        ${ui.connectError ? `<p class="form-error" role="alert">⚠️ Verbinden hat nicht geklappt: ${esc(ui.connectError)}</p>` : ''}
         <button class="btn btn-primary" type="submit">Verbinden</button>
       </form>
-      <p class="hint">Der Token wird nur auf diesem Gerät gespeichert und ausschließlich an api.github.com gesendet.</p>
+      <p class="hint">Der Token wird nur auf diesem Gerät in diesem Browser gespeichert und ausschließlich an api.github.com gesendet.</p>
+      ${safariHint(ctx)}
     </article>`;
 }
 
@@ -919,6 +941,7 @@ export function viewSettings(ctx) {
         <ul>
           <li><strong>iPhone/iPad (Safari):</strong> Teilen-Symbol → „Zum Home-Bildschirm“.</li>
           <li><strong>Android (Chrome):</strong> Menü ⋮ → „App installieren“ bzw. „Zum Startbildschirm hinzufügen“.</li>
+          <li><strong>Mac (Safari):</strong> Menü Ablage → „Zum Dock hinzufügen …“.</li>
           <li><strong>Laptop (Chrome/Edge):</strong> Installations-Symbol rechts in der Adressleiste.</li>
         </ul>
         ${ctx.canInstall ? '<button class="btn btn-primary" data-action="install">Jetzt installieren</button>' : ''}

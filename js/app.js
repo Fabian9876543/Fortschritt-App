@@ -74,13 +74,26 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.5.2';
+const VERSION = '1.5.3';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+// Safari (nicht Chrome, Firefox, Edge …): löscht Website-Daten nach 7 Tagen ohne Besuch, außer als installierte App
+const IS_SAFARI = /safari/i.test(navigator.userAgent) && !/chrome|chromium|crios|fxios|edg|opr|android/i.test(navigator.userAgent);
+const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
 const ROUTES = Object.keys(views);
 const HISTORY_DAYS = 3; // Verlauf in der Statistik: so viele Tage mit Einträgen, frühere auf Knopfdruck
 const TRAINING_WEEKS = 6;
-const ui = { libraryTab: 'books', historyDays: HISTORY_DAYS, trainingWeeks: TRAINING_WEEKS, syncStatus: 'idle', syncError: '', scrollTarget: null };
+const ui = {
+  libraryTab: 'books',
+  historyDays: HISTORY_DAYS,
+  trainingWeeks: TRAINING_WEEKS,
+  syncStatus: 'idle',
+  syncError: '',
+  syncErrorSetup: false, // Token/Gist-ID selbst taugen nicht (z. B. abgelaufen)
+  syncErrorStatus: 0,
+  connectError: '', // Grund, warum das letzte „Verbinden“ nicht geklappt hat
+  scrollTarget: null,
+};
 let stats = null;
 let timer = store.getTimer();
 let renderedDay = dayKey();
@@ -105,6 +118,7 @@ function context() {
     version: VERSION,
     canInstall: !!installPrompt,
     isIOS: IS_IOS,
+    safariTab: IS_SAFARI && !isInstalled(),
   };
 }
 
@@ -1009,7 +1023,7 @@ function refreshSyncCards() {
   if (wcard) wcard.outerHTML = widgetCard(context());
 }
 
-async function runSync({ manual = false, keepalive = false } = {}) {
+async function runSync({ manual = false, keepalive = false, connecting = false } = {}) {
   const cfg = store.getPrefs().sync;
   if (!cfg?.token) return false;
   if (syncing) {
@@ -1053,6 +1067,8 @@ async function runSync({ manual = false, keepalive = false } = {}) {
     syncedSeq = seq;
     ui.syncStatus = 'ok';
     ui.syncError = '';
+    ui.syncErrorSetup = false;
+    ui.syncErrorStatus = 0;
     if (canonical(merged) !== canonical(normalizeState(store.getState()))) store.replaceState(merged, 'sync');
     if (manual) toast({ icon: '☁️', title: 'Synchronisiert' });
     ok = true;
@@ -1060,7 +1076,9 @@ async function runSync({ manual = false, keepalive = false } = {}) {
     if (discovering) wantDiscover = true;
     ui.syncStatus = 'error';
     ui.syncError = err.message || 'Unbekannter Fehler';
-    if (manual) toast({ icon: '⚠️', title: 'Sync fehlgeschlagen', text: ui.syncError, kind: 'error', timeout: 6000 });
+    ui.syncErrorSetup = !!err.setup;
+    ui.syncErrorStatus = err.status || 0;
+    if (manual && !connecting) toast({ icon: '⚠️', title: 'Sync fehlgeschlagen', text: ui.syncError, kind: 'error', timeout: 6000 });
   } finally {
     syncing = false;
     lastSyncAt = Date.now();
@@ -1082,15 +1100,29 @@ async function connectSync(form) {
   if (!navigator.onLine) return toast({ icon: '📴', title: 'Offline', text: 'Verbinde den Sync, sobald du wieder online bist.', kind: 'error' });
   const button = form.querySelector('button[type="submit"]');
   if (button) button.disabled = true;
+  ui.connectError = '';
   // cid kennzeichnet diese Verbindung: Ein älterer Sync (anderer Tab) überschreibt sie so nicht
   store.setPrefs({ sync: { token, gistId: gistId || null, cid: uid(), lastSync: 0 } });
   wantDiscover = true;
-  const ok = await runSync({ manual: true });
+  const ok = await runSync({ manual: true, connecting: true });
   if (button) button.disabled = false;
-  if (!ok && store.getPrefs().sync?.token === token) {
+  if (ok || store.getPrefs().sync?.token !== token) return;
+  if (ui.syncErrorSetup) {
+    // Token oder Gist-ID taugen nicht: nicht behalten, den Grund im Formular zeigen
     store.setPrefs({ sync: null });
     ui.syncStatus = 'idle';
+    ui.connectError = ui.syncError;
     render();
+    toast({ icon: '⚠️', title: 'Verbinden fehlgeschlagen', text: ui.connectError, kind: 'error', timeout: 6000 });
+  } else {
+    // Nur vorübergehend (Netz, Zeitlimit, GitHub-Limit): Der Token bleibt gespeichert und der
+    // Sync versucht es von selbst weiter – früher war er in diesem Fall stillschweigend weg.
+    toast({
+      icon: '🔑',
+      title: 'Token gespeichert',
+      text: `Der erste Abgleich hat noch nicht geklappt (${ui.syncError}) – er wird automatisch wiederholt.`,
+      timeout: 7000,
+    });
   }
 }
 
