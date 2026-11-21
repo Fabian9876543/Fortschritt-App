@@ -899,6 +899,31 @@ export function trainingStats(state, today) {
 }
 
 // Diese Woche (Montag bis heute) und die ganze Woche davor
+function sumDays(days, from, to) {
+  const out = { workMin: 0, readPages: 0, xp: 0 };
+  for (let k = from; k <= to; k = addDays(k, 1)) {
+    const d = days.get(k);
+    if (!d) continue;
+    out.workMin += d.workMin;
+    out.readPages += d.readPages;
+    out.xp += d.xp;
+  }
+  return out;
+}
+
+// Alle Wochen (Mo–So) von der ersten mit Einträgen bis zur aktuellen, die neueste zuerst.
+// Die aktuelle Woche zählt bis heute.
+export function weekHistory(days, today) {
+  let first = today;
+  for (const [k, d] of days) if (k < first && (d.workMin > 0 || d.readPages > 0 || d.xp > 0)) first = k;
+  const out = [];
+  for (let start = startOfWeek(today); start >= startOfWeek(first); start = addDays(start, -7)) {
+    const end = addDays(start, 6);
+    out.push({ start, end, current: start === startOfWeek(today), ...sumDays(days, start, end < today ? end : today) });
+  }
+  return out;
+}
+
 export function weekTotals(days, today) {
   const sum = (from, to) => {
     const out = { workMin: 0, readPages: 0, xp: 0 };

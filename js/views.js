@@ -720,7 +720,7 @@ export function viewStats(ctx) {
       </article>
       <div class="grid grid-2">
         <article class="card">
-          <header class="card-head"><div><h2>Diese Woche</h2><p class="sub">ab Montag, ${esc(fmtDayMonth(week.start))}</p></div></header>
+          <header class="card-head"><div><h2>Diese Woche</h2><p class="sub">ab Montag, ${esc(fmtDayMonth(week.start))}</p></div><button class="btn btn-ghost btn-sm" data-action="all-weeks">Alle Wochen</button></header>
           ${weekCompare(week)}
         </article>
         <article class="card">
@@ -948,6 +948,45 @@ export function viewSettings(ctx) {
       </article>
       <p class="hint center">Fortschritt · Version ${esc(ctx.version)}</p>
     </section>`;
+}
+
+// ---------------------------------------------------------------- Alle Wochen im Vergleich
+
+const WEEK_METRICS = {
+  workMin: { label: 'Deep Work', kind: 'work', fmt: fmtHours },
+  readPages: { label: 'Seiten', kind: 'read', fmt: fmtNum },
+  xp: { label: 'XP', kind: 'xp', fmt: fmtNum },
+};
+
+// weeks aus weekHistory (neueste zuerst); Balken relativ zur besten Woche, die beste mit 🏆
+export function weeksView(weeks, metric = 'workMin') {
+  const m = WEEK_METRICS[metric] || WEEK_METRICS.workMin;
+  const best = Math.max(0, ...weeks.map((w) => w[metric]));
+  const past = weeks.filter((w) => !w.current);
+  const avg = past.length ? past.reduce((sum, w) => sum + w[metric], 0) / past.length : 0;
+  const range = (w) => `${fmtDayMonth(w.start)} – ${fmtDayMonth(w.end)}`;
+  const rows = weeks
+    .map((w) => {
+      const top = best > 0 && w[metric] === best;
+      return `
+        <li class="${w.current ? 'is-current' : ''}">
+          <span class="wk-label">${w.current ? '<strong>Diese Woche</strong> <small class="muted">bis heute</small>' : esc(range(w))}</span>
+          <strong class="wk-value">${top ? '🏆 ' : ''}${esc(m.fmt(w[metric]))}</strong>
+          ${progressBar(best > 0 ? w[metric] / best : 0, m.kind, `${w.current ? 'Diese Woche' : range(w)}: ${m.fmt(w[metric])}`)}
+        </li>`;
+    })
+    .join('');
+  return `
+    <div class="segmented" role="tablist" aria-label="Wert">
+      ${Object.entries(WEEK_METRICS)
+        .map(
+          ([key, x]) =>
+            `<button type="button" role="tab" aria-selected="${key === metric}" data-modal-action="weeks-metric" data-metric="${key}">${x.label}</button>`,
+        )
+        .join('')}
+    </div>
+    ${past.length ? `<p class="muted small">Ø pro abgeschlossener Woche: <strong>${esc(m.fmt(Math.round(avg)))}</strong> · ${past.length} ${past.length === 1 ? 'Woche' : 'Wochen'}</p>` : ''}
+    <ul class="week-list">${rows}</ul>`;
 }
 
 // ---------------------------------------------------------------- Deep Work zuordnen

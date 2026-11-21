@@ -33,6 +33,7 @@ import {
   trainingId,
   uid,
   unassignedWork,
+  weekHistory,
   widgetSummary,
 } from './logic.js';
 import { WIDGET_FILE, pushOnClose, syncWithGist, widgetDataUrl } from './sync.js';
@@ -49,6 +50,7 @@ import {
   syncCard,
   trainingToggles,
   views,
+  weeksView,
   widgetCard,
 } from './views.js';
 import {
@@ -74,7 +76,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.5.4';
+const VERSION = '1.5.5';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 // Safari (nicht Chrome, Firefox, Edge …): löscht Website-Daten nach 7 Tagen ohne Besuch, außer als installierte App
@@ -843,6 +845,27 @@ function assignDialog() {
   refreshDialog = fill;
 }
 
+// Alle Wochen im Vergleich (Statistik → Diese Woche → „Alle Wochen“)
+function weeksDialog() {
+  let metric = 'workMin';
+  let form = null;
+  const body = () => weeksView(weekHistory(stats.days, stats.today), metric);
+  ({ form } = openModal({
+    title: 'Alle Wochen',
+    body: body(),
+    submitLabel: 'Fertig',
+    cancel: false,
+    onAction: (action, _form, btn) => {
+      if (action !== 'weeks-metric') return;
+      metric = btn.dataset.metric;
+      form.querySelector('.modal-body').innerHTML = body();
+      form.querySelector(`[data-metric="${metric}"]`)?.focus();
+    },
+    onClose: () => (refreshDialog = null),
+  }));
+  refreshDialog = () => form?.isConnected && (form.querySelector('.modal-body').innerHTML = body());
+}
+
 function logBookDialog(id) {
   sessionDialog({ kind: 'read', bookId: id, day: dayKey() }, { mode: 'manual' });
 }
@@ -1207,6 +1230,7 @@ const actions = {
     render();
   },
   'assign-sessions': assignDialog,
+  'all-weeks': weeksDialog,
   'training-toggle': (el) => setTraining(el.dataset.day, el.dataset.type, pressedTarget(el)),
   'training-day': (el) => trainingDayDialog(el.dataset.day),
   'training-more': () => {

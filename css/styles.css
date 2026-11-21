@@ -3034,3 +3034,38 @@ dialog::backdrop {
     transition: none !important;
   }
 }
+
+/* Alle Wochen im Vergleich */
+.week-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.week-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: 0 12px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.week-list li:last-child {
+  border-bottom: 0;
+}
+
+.week-list .progress {
+  grid-column: 1 / -1;
+  margin: 6px 0 2px;
+}
+
+.wk-label {
+  font-size: 14px;
+  color: var(--text-2);
+}
+
+.wk-value {
+  font-size: 15px;
+  white-space: nowrap;
+}

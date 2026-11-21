@@ -36,6 +36,7 @@ import {
   trainingId,
   trainingStats,
   unassignedWork,
+  weekHistory,
   walkStreak,
   weekTotals,
   xpForLevel,
@@ -594,4 +595,21 @@ test('„Am Stück“-Quests: nur die längste Session zählt, und sie sind daf�
     }
   }
   for (const id of ['deep45', 'deep90', 'read30']) assert.ok(seen.has(id), id);
+});
+
+test('Alle Wochen: lückenlos von der ersten bis zur aktuellen, neueste zuerst, aktuelle bis heute', () => {
+  const st = stateWith([
+    session('2026-11-03', { kind: 'work', minutes: 60 }), // Woche ab 2. Nov
+    session('2026-11-19', { kind: 'work', minutes: 30 }), // Woche ab 16. Nov
+    session('2026-11-20', { kind: 'read', pages: 12 }),
+  ]);
+  const weeks = weekHistory(computeStats(st, '2026-11-21').days, '2026-11-21');
+  assert.deepEqual(
+    weeks.map((w) => [w.start, w.workMin, w.readPages, w.current]),
+    [
+      ['2026-11-16', 30, 12, true],
+      ['2026-11-09', 0, 0, false],
+      ['2026-11-02', 60, 0, false],
+    ],
+  );
 });
