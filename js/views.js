@@ -181,7 +181,7 @@ function onboarding(state) {
 function ringItem({ kind, value, goal, unit, label, streak }) {
   const done = goal > 0 && value >= goal;
   return `
-    <div class="ring-item ${done ? 'is-done' : ''}">
+    <button type="button" class="ring-item ${done ? 'is-done' : ''}" data-action="ring-focus" data-kind="${kind}" aria-label="${esc(`${label}: ${fmtNum(value)} von ${fmtNum(goal)} ${unit} – zum Fokus`)}">
       <div class="ring-wrap">
         ${ring({ value, goal, kind })}
         <div class="ring-center">
@@ -191,7 +191,7 @@ function ringItem({ kind, value, goal, unit, label, streak }) {
       </div>
       <div class="ring-label"><span class="key key-${kind}"></span>${label}${done ? ' ✓' : ''}</div>
       <div class="ring-sub">${streak.current ? `🔥 ${streak.current} ${streak.current === 1 ? 'Tag' : 'Tage'}` : 'kein Streak'}</div>
-    </div>`;
+    </button>`;
 }
 
 // Geschützte Leerzeichen: Auf schmalen Displays bricht die Zeile nach dem Doppelpunkt um

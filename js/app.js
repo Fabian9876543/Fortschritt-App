@@ -74,7 +74,7 @@ import {
   unlockAudio,
 } from './ui.js';
 
-const VERSION = '1.5.3';
+const VERSION = '1.5.4';
 const APP_URL = new URL('./', location.href).href;
 const IS_IOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 // Safari (nicht Chrome, Firefox, Edge …): löscht Website-Daten nach 7 Tagen ohne Besuch, außer als installierte App
@@ -1141,6 +1141,11 @@ const actions = {
   'start-project': (el) => {
     store.setPrefs({ focus: { ...store.getPrefs().focus, kind: 'work', workRef: el.dataset.id } });
     startTimer('work', el.dataset.id, presetMinutes(store.getPrefs().focus, 'work'));
+  },
+  // Ring auf „Heute“ antippen → Fokus-Seite mit dieser Kategorie
+  'ring-focus': (el) => {
+    store.setPrefs({ focus: { ...store.getPrefs().focus, kind: el.dataset.kind === 'read' ? 'read' : 'work' } });
+    location.hash = '#/fokus';
   },
   'focus-kind': (el) => {
     store.setPrefs({ focus: { ...store.getPrefs().focus, kind: el.dataset.kind } });

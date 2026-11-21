@@ -1403,6 +1403,23 @@ body.has-mini-timer main {
   flex-direction: column;
   align-items: center;
   gap: 6px;
+  padding: 6px 10px;
+  border: 0;
+  border-radius: 16px;
+  background: none;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.ring-item:hover,
+.ring-item:focus-visible {
+  background: var(--surface-2);
+}
+
+.ring-item:active {
+  transform: scale(0.97);
 }
 
 .ring-wrap {
